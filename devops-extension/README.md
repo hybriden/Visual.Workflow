@@ -9,6 +9,7 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **My Work Items**: See all work items assigned to you in a separate view
 - **Quick Project Switching**: Switch between projects instantly with `Ctrl+Alt+P`
 - **Quick Open Work Items**: Search and open work items with keyboard shortcuts
+- **AI-Powered Descriptions**: Generate work item descriptions using OpenAI (optional)
 - **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Smart Filtering**: Hide completed/removed items by default (configurable)
 - **Auto-refresh**: Keep your work items up to date automatically
@@ -33,6 +34,17 @@ That's it! No need to manually type project names.
 1. Go to Azure DevOps → User Settings → Personal Access Tokens
 2. Create a new token with **"Work Items (Read & Write)"** permissions
 3. Copy the token and paste it in the setup wizard
+
+### Optional: AI-Powered Descriptions
+
+To enable AI-generated descriptions for work items:
+
+1. Get an OpenAI API key from https://platform.openai.com/api-keys
+2. Open VS Code Settings (`Ctrl+,`)
+3. Search for "Azure DevOps: OpenAI API Key"
+4. Paste your API key
+
+Once configured, work items without descriptions will show a "Generate with AI" button.
 
 ## Keyboard Shortcuts
 
@@ -66,6 +78,23 @@ Two methods:
 
 The state dropdown dynamically shows only valid state transitions for your Azure DevOps workflow configuration.
 
+### Generating Descriptions with AI
+
+When viewing a work item without a description:
+1. A yellow banner appears: "⚠️ This work item is missing a description. Would you like to generate one with AI?"
+2. Click "Generate with AI"
+3. Wait 2-3 seconds while AI generates a context-aware description
+4. The description is automatically saved to Azure DevOps
+
+**What context does AI use?**
+- Work item title
+- Work item type (Task, User Story, Bug, etc.)
+- Area path (team/feature context)
+- Iteration path (sprint context)
+- Tags
+
+**Cost:** Using GPT-4o-mini costs approximately $0.001 per description (very affordable).
+
 ### Filtering Work Items
 
 Use the Command Palette:
@@ -84,6 +113,8 @@ This extension contributes the following settings:
 - `azureDevOps.hideCompletedItems`: Hide completed work items (default: true)
 - `azureDevOps.hideRemovedItems`: Hide removed work items (default: true)
 - `azureDevOps.showOnlyAssignedToMe`: In Sprint Board, show only items assigned to me (default: false)
+- `azureDevOps.openAiApiKey`: OpenAI API key for AI descriptions (optional)
+- `azureDevOps.openAiModel`: OpenAI model to use - gpt-4o-mini (default), gpt-4o, or gpt-4-turbo
 
 **Note**: Project and team are managed via the Setup Wizard and Quick Switch, not manually in settings.
 
@@ -91,6 +122,7 @@ This extension contributes the following settings:
 
 - Azure DevOps account
 - Personal Access Token with Work Items (Read & Write) permissions
+- (Optional) OpenAI API key for AI-generated descriptions
 
 ## Known Issues
 
@@ -105,6 +137,7 @@ Initial release with:
 - Setup wizard with automatic project fetching
 - Quick project switching
 - Dynamic state transitions from Azure DevOps API
+- AI-powered description generation (optional)
 - Smart filtering for completed and removed items
 - Keyboard shortcuts for all major actions
 - Auto-refresh functionality
