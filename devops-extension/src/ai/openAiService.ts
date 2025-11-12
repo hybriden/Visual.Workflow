@@ -120,7 +120,7 @@ export class OpenAiService {
           }
         ],
         temperature: 0.7,
-        max_tokens: 200
+        max_completion_tokens: 200
       });
 
       const description = result.choices[0]?.message?.content?.trim();
