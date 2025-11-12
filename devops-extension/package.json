@@ -177,7 +177,7 @@
         },
         "azureDevOps.azureOpenAiApiVersion": {
           "type": "string",
-          "default": "2024-04-01-preview",
+          "default": "2025-04-01-preview",
           "description": "Azure OpenAI API version (e.g., 2024-04-01-preview)"
         }
       }

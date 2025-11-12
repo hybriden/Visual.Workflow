@@ -37,11 +37,8 @@ export class OpenAiService {
   private getEndpoint(): string {
     const config = vscode.workspace.getConfiguration('azureDevOps');
     let endpoint = config.get<string>('azureOpenAiEndpoint', '');
-    // Ensure trailing slash
-    endpoint = endpoint.trim();
-    if (!endpoint.endsWith('/')) {
-      endpoint += '/';
-    }
+    // Remove trailing slash if present (SDK adds it)
+    endpoint = endpoint.trim().replace(/\/$/, '');
     return endpoint;
   }
 
@@ -66,7 +63,7 @@ export class OpenAiService {
    */
   private getApiVersion(): string {
     const config = vscode.workspace.getConfiguration('azureDevOps');
-    return config.get<string>('azureOpenAiApiVersion', '2024-04-01-preview');
+    return config.get<string>('azureOpenAiApiVersion', '2025-04-01-preview');
   }
 
   /**
