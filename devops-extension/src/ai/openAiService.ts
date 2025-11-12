@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import axios, { AxiosInstance } from 'axios';
+import { AzureOpenAI } from 'openai';
 import { WorkItem } from '../models/workItem';
 
 /**
@@ -7,15 +7,9 @@ import { WorkItem } from '../models/workItem';
  */
 export class OpenAiService {
   private static instance: OpenAiService;
-  private axiosInstance: AxiosInstance;
 
   private constructor() {
-    this.axiosInstance = axios.create({
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // No initialization needed - client is created per request with current config
   }
 
   public static getInstance(): OpenAiService {
@@ -43,8 +37,11 @@ export class OpenAiService {
   private getEndpoint(): string {
     const config = vscode.workspace.getConfiguration('azureDevOps');
     let endpoint = config.get<string>('azureOpenAiEndpoint', '');
-    // Remove trailing slash if present
-    endpoint = endpoint.trim().replace(/\/$/, '');
+    // Ensure trailing slash
+    endpoint = endpoint.trim();
+    if (!endpoint.endsWith('/')) {
+      endpoint += '/';
+    }
     return endpoint;
   }
 
@@ -65,9 +62,9 @@ export class OpenAiService {
   }
 
   /**
-   * Generate a description for a work item
+   * Create Azure OpenAI client with current configuration
    */
-  public async generateDescription(workItem: WorkItem): Promise<string> {
+  private createClient(): AzureOpenAI {
     const endpoint = this.getEndpoint();
     const apiKey = this.getApiKey();
     const deployment = this.getDeployment();
@@ -75,6 +72,21 @@ export class OpenAiService {
     if (!endpoint || !apiKey || !deployment) {
       throw new Error('Azure OpenAI not configured');
     }
+
+    return new AzureOpenAI({
+      endpoint,
+      apiKey,
+      deployment,
+      apiVersion: '2024-04-01-preview'
+    });
+  }
+
+  /**
+   * Generate a description for a work item
+   */
+  public async generateDescription(workItem: WorkItem): Promise<string> {
+    const client = this.createClient();
+    const deployment = this.getDeployment();
 
     const fields = workItem.fields;
     const title = fields['System.Title'];
@@ -86,34 +98,24 @@ export class OpenAiService {
     // Build context-rich prompt
     const prompt = this.buildPrompt(title, workItemType, areaPath, iterationPath, tags);
 
-    // Build Azure OpenAI API URL
-    const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=2024-02-15-preview`;
-
     try {
-      const response = await this.axiosInstance.post(
-        url,
-        {
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful assistant that writes clear, concise descriptions for Azure DevOps work items. Write 2-3 sentences describing what needs to be done and why. Be specific and actionable.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 200
-        },
-        {
-          headers: {
-            'api-key': apiKey
+      const result = await client.chat.completions.create({
+        model: deployment,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that writes clear, concise descriptions for Azure DevOps work items. Write 2-3 sentences describing what needs to be done and why. Be specific and actionable.'
+          },
+          {
+            role: 'user',
+            content: prompt
           }
-        }
-      );
+        ],
+        temperature: 0.7,
+        max_tokens: 200
+      });
 
-      const description = response.data.choices[0]?.message?.content?.trim();
+      const description = result.choices[0]?.message?.content?.trim();
 
       if (!description) {
         throw new Error('No description generated');
@@ -121,16 +123,16 @@ export class OpenAiService {
 
       return description;
     } catch (error: any) {
-      if (error.response?.status === 401) {
+      if (error.status === 401) {
         throw new Error('Invalid Azure OpenAI API key. Please check your configuration.');
-      } else if (error.response?.status === 404) {
+      } else if (error.status === 404) {
         throw new Error('Azure OpenAI deployment not found. Please check your endpoint and deployment name.');
-      } else if (error.response?.status === 429) {
+      } else if (error.status === 429) {
         throw new Error('Azure OpenAI rate limit exceeded. Please try again later.');
-      } else if (error.response?.data?.error?.message) {
-        throw new Error(`Azure OpenAI API error: ${error.response.data.error.message}`);
+      } else if (error.message) {
+        throw new Error(`Azure OpenAI API error: ${error.message}`);
       } else {
-        throw new Error(`Failed to generate description: ${error.message}`);
+        throw new Error(`Failed to generate description: ${String(error)}`);
       }
     }
   }
