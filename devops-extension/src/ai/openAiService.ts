@@ -3,7 +3,7 @@ import axios, { AxiosInstance } from 'axios';
 import { WorkItem } from '../models/workItem';
 
 /**
- * Service for generating work item descriptions using OpenAI
+ * Service for generating work item descriptions using Azure OpenAI
  */
 export class OpenAiService {
   private static instance: OpenAiService;
@@ -11,7 +11,6 @@ export class OpenAiService {
 
   private constructor() {
     this.axiosInstance = axios.create({
-      baseURL: 'https://api.openai.com/v1',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json'
@@ -27,12 +26,26 @@ export class OpenAiService {
   }
 
   /**
-   * Check if OpenAI is configured
+   * Check if Azure OpenAI is configured
    */
   public isConfigured(): boolean {
     const config = vscode.workspace.getConfiguration('azureDevOps');
-    const apiKey = config.get<string>('openAiApiKey', '');
-    return apiKey.trim() !== '';
+    const endpoint = config.get<string>('azureOpenAiEndpoint', '');
+    const apiKey = config.get<string>('azureOpenAiKey', '');
+    const deployment = config.get<string>('azureOpenAiDeployment', '');
+
+    return endpoint.trim() !== '' && apiKey.trim() !== '' && deployment.trim() !== '';
+  }
+
+  /**
+   * Get the configured endpoint
+   */
+  private getEndpoint(): string {
+    const config = vscode.workspace.getConfiguration('azureDevOps');
+    let endpoint = config.get<string>('azureOpenAiEndpoint', '');
+    // Remove trailing slash if present
+    endpoint = endpoint.trim().replace(/\/$/, '');
+    return endpoint;
   }
 
   /**
@@ -40,24 +53,27 @@ export class OpenAiService {
    */
   private getApiKey(): string {
     const config = vscode.workspace.getConfiguration('azureDevOps');
-    return config.get<string>('openAiApiKey', '');
+    return config.get<string>('azureOpenAiKey', '');
   }
 
   /**
-   * Get the configured model
+   * Get the configured deployment name
    */
-  private getModel(): string {
+  private getDeployment(): string {
     const config = vscode.workspace.getConfiguration('azureDevOps');
-    return config.get<string>('openAiModel', 'gpt-4o-mini');
+    return config.get<string>('azureOpenAiDeployment', 'gpt-4o-mini');
   }
 
   /**
    * Generate a description for a work item
    */
   public async generateDescription(workItem: WorkItem): Promise<string> {
+    const endpoint = this.getEndpoint();
     const apiKey = this.getApiKey();
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+    const deployment = this.getDeployment();
+
+    if (!endpoint || !apiKey || !deployment) {
+      throw new Error('Azure OpenAI not configured');
     }
 
     const fields = workItem.fields;
@@ -70,11 +86,13 @@ export class OpenAiService {
     // Build context-rich prompt
     const prompt = this.buildPrompt(title, workItemType, areaPath, iterationPath, tags);
 
+    // Build Azure OpenAI API URL
+    const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=2024-02-15-preview`;
+
     try {
       const response = await this.axiosInstance.post(
-        '/chat/completions',
+        url,
         {
-          model: this.getModel(),
           messages: [
             {
               role: 'system',
@@ -90,7 +108,7 @@ export class OpenAiService {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`
+            'api-key': apiKey
           }
         }
       );
@@ -104,11 +122,13 @@ export class OpenAiService {
       return description;
     } catch (error: any) {
       if (error.response?.status === 401) {
-        throw new Error('Invalid OpenAI API key. Please check your configuration.');
+        throw new Error('Invalid Azure OpenAI API key. Please check your configuration.');
+      } else if (error.response?.status === 404) {
+        throw new Error('Azure OpenAI deployment not found. Please check your endpoint and deployment name.');
       } else if (error.response?.status === 429) {
-        throw new Error('OpenAI rate limit exceeded. Please try again later.');
+        throw new Error('Azure OpenAI rate limit exceeded. Please try again later.');
       } else if (error.response?.data?.error?.message) {
-        throw new Error(`OpenAI API error: ${error.response.data.error.message}`);
+        throw new Error(`Azure OpenAI API error: ${error.response.data.error.message}`);
       } else {
         throw new Error(`Failed to generate description: ${error.message}`);
       }
@@ -116,7 +136,7 @@ export class OpenAiService {
   }
 
   /**
-   * Build the prompt for OpenAI
+   * Build the prompt for Azure OpenAI
    */
   private buildPrompt(
     title: string,
@@ -137,29 +157,46 @@ Write a clear description of what needs to be done and why. Be specific and acti
   }
 
   /**
-   * Prompt user to configure OpenAI API key
+   * Prompt user to configure Azure OpenAI
    */
   public async promptForApiKey(): Promise<boolean> {
     const action = await vscode.window.showInformationMessage(
-      'OpenAI API key not configured. Would you like to add one now?',
-      'Add API Key',
+      'Azure OpenAI not configured. Would you like to configure it now?',
+      'Configure',
       'Cancel'
     );
 
-    if (action !== 'Add API Key') {
+    if (action !== 'Configure') {
       return false;
     }
 
+    // Prompt for endpoint
+    const endpoint = await vscode.window.showInputBox({
+      prompt: 'Enter your Azure OpenAI endpoint URL',
+      placeHolder: 'https://your-resource.openai.azure.com',
+      validateInput: (value) => {
+        if (!value || value.trim() === '') {
+          return 'Endpoint cannot be empty';
+        }
+        if (!value.startsWith('https://')) {
+          return 'Endpoint must start with https://';
+        }
+        return null;
+      }
+    });
+
+    if (!endpoint) {
+      return false;
+    }
+
+    // Prompt for API key
     const apiKey = await vscode.window.showInputBox({
-      prompt: 'Enter your OpenAI API key',
-      placeHolder: 'sk-...',
+      prompt: 'Enter your Azure OpenAI API key',
+      placeHolder: 'Your API key...',
       password: true,
       validateInput: (value) => {
         if (!value || value.trim() === '') {
           return 'API key cannot be empty';
-        }
-        if (!value.startsWith('sk-')) {
-          return 'Invalid API key format (should start with sk-)';
         }
         return null;
       }
@@ -169,14 +206,30 @@ Write a clear description of what needs to be done and why. Be specific and acti
       return false;
     }
 
-    // Save API key
-    await vscode.workspace.getConfiguration('azureDevOps').update(
-      'openAiApiKey',
-      apiKey,
-      vscode.ConfigurationTarget.Global
-    );
+    // Prompt for deployment name
+    const deployment = await vscode.window.showInputBox({
+      prompt: 'Enter your Azure OpenAI deployment name',
+      placeHolder: 'gpt-4o-mini',
+      value: 'gpt-4o-mini',
+      validateInput: (value) => {
+        if (!value || value.trim() === '') {
+          return 'Deployment name cannot be empty';
+        }
+        return null;
+      }
+    });
 
-    vscode.window.showInformationMessage('OpenAI API key configured successfully!');
+    if (!deployment) {
+      return false;
+    }
+
+    // Save configuration
+    const config = vscode.workspace.getConfiguration('azureDevOps');
+    await config.update('azureOpenAiEndpoint', endpoint, vscode.ConfigurationTarget.Global);
+    await config.update('azureOpenAiKey', apiKey, vscode.ConfigurationTarget.Global);
+    await config.update('azureOpenAiDeployment', deployment, vscode.ConfigurationTarget.Global);
+
+    vscode.window.showInformationMessage('Azure OpenAI configured successfully!');
     return true;
   }
 }

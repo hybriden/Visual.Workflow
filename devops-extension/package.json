@@ -158,21 +158,22 @@
           "default": false,
           "description": "In Sprint Board, show only items assigned to me"
         },
-        "azureDevOps.openAiApiKey": {
+        "azureDevOps.azureOpenAiEndpoint": {
           "type": "string",
           "default": "",
-          "description": "OpenAI API key for AI-generated work item descriptions (optional)",
+          "description": "Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/)",
           "scope": "machine-overridable"
         },
-        "azureDevOps.openAiModel": {
+        "azureDevOps.azureOpenAiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI API key (optional - for AI-generated descriptions)",
+          "scope": "machine-overridable"
+        },
+        "azureDevOps.azureOpenAiDeployment": {
           "type": "string",
           "default": "gpt-4o-mini",
-          "enum": [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "gpt-4-turbo"
-          ],
-          "description": "OpenAI model to use for generating descriptions"
+          "description": "Azure OpenAI deployment name for description generation"
         }
       }
     }
