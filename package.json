@@ -133,6 +133,16 @@
           "description": "Personal Access Token for authentication",
           "scope": "machine-overridable"
         },
+        "azureDevOps.project": {
+          "type": "string",
+          "default": "",
+          "description": "Current project name (managed by Setup Wizard and Project Switcher)"
+        },
+        "azureDevOps.team": {
+          "type": "string",
+          "default": "",
+          "description": "Current team name (managed by Setup Wizard)"
+        },
         "azureDevOps.autoRefresh": {
           "type": "boolean",
           "default": true,

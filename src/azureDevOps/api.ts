@@ -38,7 +38,11 @@ export class AzureDevOpsApi {
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
-        this.handleApiError(error);
+        // Check if this request should suppress error messages
+        const suppressErrors = (error.config as any)?.suppressErrors;
+        if (!suppressErrors) {
+          this.handleApiError(error);
+        }
         return Promise.reject(error);
       }
     );
@@ -109,8 +113,16 @@ export class AzureDevOpsApi {
    */
   public async testConnection(): Promise<boolean> {
     try {
-      const url = `${this.getProjectUrl()}/_apis/wit/workitems?ids=1&api-version=7.0`;
-      await this.axiosInstance.get(url);
+      const project = this.auth.getProject();
+      if (!project) {
+        return false;
+      }
+
+      // Use project endpoint which is reliable and doesn't require specific work item IDs
+      const url = `${this.getBaseUrl()}/_apis/projects/${encodeURIComponent(project)}?api-version=7.1`;
+
+      // Suppress error popups for connection tests
+      await this.axiosInstance.get(url, { suppressErrors: true } as any);
       return true;
     } catch (error) {
       return false;
@@ -392,6 +404,116 @@ export class AzureDevOpsApi {
       return response.data;
     } catch (error) {
       console.error('Error creating work item:', error);
+      throw error;
+    }
+  }
+
+
+  /**
+   * Get all teams in the project (helper for debugging)
+   */
+  private async getProjectTeams(): Promise<Array<{ id: string; name: string }>> {
+    try {
+      const project = this.auth.getProject();
+      if (!project) {
+        return [];
+      }
+
+      const url = `${this.getBaseUrl()}/_apis/projects/${encodeURIComponent(project)}/teams?api-version=7.1`;
+      const response = await this.axiosInstance.get(url);
+
+      return response.data.value.map((team: any) => ({
+        id: team.id,
+        name: team.name
+      }));
+    } catch (error) {
+      console.error('Error fetching project teams:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get team members for assignment dropdown
+   * Fetches members from ALL teams in the project and combines them
+   */
+  public async getTeamMembers(): Promise<Array<{ id: string; displayName: string; uniqueName: string }>> {
+    try {
+      const project = this.auth.getProject();
+      if (!project) {
+        throw new Error('No project configured');
+      }
+
+      // Get all teams in the project
+      const availableTeams = await this.getProjectTeams();
+      console.log(`Found ${availableTeams.length} teams in project "${project}":`, availableTeams.map(t => t.name).join(', '));
+
+      if (availableTeams.length === 0) {
+        console.error('No teams found in project');
+        return [];
+      }
+
+      // Fetch members from all teams
+      const allMembersMap = new Map<string, { id: string; displayName: string; uniqueName: string }>();
+
+      for (const team of availableTeams) {
+        try {
+          const url = `${this.getBaseUrl()}/_apis/projects/${encodeURIComponent(project)}/teams/${encodeURIComponent(team.id)}/members?api-version=7.1`;
+          console.log(`Fetching members from team "${team.name}"...`);
+
+          const response = await this.axiosInstance.get(url);
+          const teamMembers = response.data.value || [];
+
+          // Add members to map (deduplicates by uniqueName)
+          for (const member of teamMembers) {
+            if (member.identity && member.identity.uniqueName) {
+              allMembersMap.set(member.identity.uniqueName, {
+                id: member.identity.id,
+                displayName: member.identity.displayName,
+                uniqueName: member.identity.uniqueName
+              });
+            }
+          }
+
+          console.log(`  Added ${teamMembers.length} members from "${team.name}"`);
+        } catch (teamError: any) {
+          console.warn(`Failed to fetch members from team "${team.name}":`, teamError.message);
+          // Continue with other teams even if one fails
+        }
+      }
+
+      const uniqueMembers = Array.from(allMembersMap.values());
+      console.log(`Successfully fetched ${uniqueMembers.length} unique members across all teams`);
+
+      // Sort by display name for easier selection
+      uniqueMembers.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+      return uniqueMembers;
+    } catch (error: any) {
+      console.error('Error fetching team members:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      // Return empty array if fetch fails
+      return [];
+    }
+  }
+
+  /**
+   * Assign work item to a user
+   */
+  public async assignWorkItem(workItemId: number, userIdentity: string): Promise<WorkItem> {
+    try {
+      const updates = [
+        {
+          op: 'add',
+          path: '/fields/System.AssignedTo',
+          value: userIdentity
+        }
+      ];
+
+      return await this.updateWorkItem(workItemId, updates);
+    } catch (error) {
+      console.error('Error assigning work item:', error);
       throw error;
     }
   }

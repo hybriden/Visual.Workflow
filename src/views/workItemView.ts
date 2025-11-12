@@ -14,6 +14,7 @@ export class WorkItemViewPanel {
   private api: AzureDevOpsApi;
   private openAiService: OpenAiService;
   private validStates: string[] = [];
+  private parentWorkItem: WorkItem | undefined;
 
   private constructor(panel: vscode.WebviewPanel, workItem: WorkItem) {
     this._panel = panel;
@@ -41,10 +42,15 @@ export class WorkItemViewPanel {
             await this.refresh();
             break;
           case 'generateDescription':
-            await this.generateDescription();
+            await this.generateDescription(message.existingDescription);
             break;
           case 'saveDescription':
             await this.saveDescription(message.description);
+            break;
+          case 'openParent':
+            if (this.parentWorkItem) {
+              WorkItemViewPanel.createOrShow(this.parentWorkItem);
+            }
             break;
         }
       },
@@ -110,7 +116,7 @@ export class WorkItemViewPanel {
     }
   }
 
-  private async generateDescription() {
+  private async generateDescription(existingDescription?: string) {
     try {
       // Check if OpenAI is configured
       if (!this.openAiService.isConfigured()) {
@@ -129,7 +135,7 @@ export class WorkItemViewPanel {
         },
         async () => {
           // Generate description
-          const description = await this.openAiService.generateDescription(this.workItem);
+          const description = await this.openAiService.generateDescription(this.workItem, existingDescription);
 
           // Update work item with new description
           const updates = [
@@ -197,6 +203,7 @@ export class WorkItemViewPanel {
     }
   }
 
+
   public dispose() {
     WorkItemViewPanel.currentPanel = undefined;
 
@@ -223,6 +230,19 @@ export class WorkItemViewPanel {
       this.validStates = ['Active', 'Resolved', 'Closed'];
     }
     
+    // Fetch parent work item if it exists
+    const parentId = this.workItem.fields['System.Parent'];
+    if (parentId) {
+      try {
+        this.parentWorkItem = await this.api.getWorkItem(parentId);
+      } catch (error) {
+        console.error('Error fetching parent work item:', error);
+        this.parentWorkItem = undefined;
+      }
+    } else {
+      this.parentWorkItem = undefined;
+    }
+
     this._panel.webview.html = this._getHtmlForWebview(webview);
   }
 
@@ -242,6 +262,10 @@ export class WorkItemViewPanel {
     const iterationPath = fields['System.IterationPath'];
     const tags = fields['System.Tags'] || 'No tags';
     const remainingWork = fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0;
+    
+    // Parent work item info
+    const parentInfo = this.parentWorkItem ? `#${this.parentWorkItem.id} - ${this.parentWorkItem.fields['System.Title']}` : null;
+    const parentType = this.parentWorkItem ? this.parentWorkItem.fields['System.WorkItemType'] : null;
 
     // Common state transitions
     const stateOptions = this.getStateOptions(state);
@@ -427,6 +451,10 @@ export class WorkItemViewPanel {
 
       <div class="section">
         <div class="section-title">Details</div>
+        ${parentInfo ? `<div class="field">
+          <div class="field-label">Parent ${parentType}:</div>
+          <div class="field-value" style="cursor: pointer; color: var(--vscode-textLink-foreground);" onclick="openParent()">${parentInfo}</div>
+        </div>` : ''}
         <div class="field">
           <div class="field-label">Assigned To:</div>
           <div class="field-value">${assignedTo}</div>
@@ -493,7 +521,12 @@ export class WorkItemViewPanel {
         }
 
         function generateWithAI() {
-          vscode.postMessage({ command: 'generateDescription' });
+          const textarea = document.getElementById('descriptionText');
+          const existingDescription = textarea.value;
+          vscode.postMessage({ 
+            command: 'generateDescription',
+            existingDescription: existingDescription 
+          });
         }
 
         function saveDescription() {
@@ -504,6 +537,11 @@ export class WorkItemViewPanel {
             description: newDescription
           });
         }
+
+        function openParent() {
+          vscode.postMessage({ command: 'openParent' });
+        }
+
       </script>
     </body>
     </html>`;

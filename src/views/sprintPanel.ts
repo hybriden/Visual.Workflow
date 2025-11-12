@@ -6,19 +6,30 @@ import { WorkItem, WorkItemTypeIcons, StateColors } from '../models/workItem';
  * Tree item for work items in the sprint board
  */
 export class WorkItemTreeItem extends vscode.TreeItem {
+  public children: WorkItem[] = [];
+
   constructor(
     public readonly workItem: WorkItem,
-    public readonly collapsibleState: vscode.TreeItemCollapsibleState
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+    private readonly showParentInDescription: boolean = false
   ) {
     super(workItem.fields['System.Title'], collapsibleState);
 
     const workItemType = workItem.fields['System.WorkItemType'];
     const state = workItem.fields['System.State'];
     const id = workItem.fields['System.Id'];
+    const parentId = workItem.fields['System.Parent'];
 
     this.id = id.toString();
     this.tooltip = this.getTooltip();
-    this.description = `#${id} - ${state}`;
+
+    // Only show parent in description if explicitly requested (for items whose parent is not in the same view)
+    if (showParentInDescription && parentId) {
+      this.description = `#${id} - ${state} (Parent: #${parentId})`;
+    } else {
+      this.description = `#${id} - ${state}`;
+    }
+
     this.contextValue = 'workItem';
 
     // Set icon based on work item type
@@ -164,13 +175,56 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
 
       return items;
     } else if (element instanceof StateCategoryTreeItem) {
-      // Show work items in this category
-      return element.workItems.map(
-        wi => new WorkItemTreeItem(wi, vscode.TreeItemCollapsibleState.None)
+      // Show work items in this category with parent-child hierarchy
+      return this.buildHierarchy(element.workItems);
+    } else if (element instanceof WorkItemTreeItem) {
+      // Show children of this work item
+      return element.children.map(
+        child => new WorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
       );
     }
 
     return [];
+  }
+
+  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
+    // Create a map of work item ID to work item
+    const itemMap = new Map<number, WorkItem>();
+    workItems.forEach(wi => itemMap.set(wi.fields['System.Id'], wi));
+
+    // Separate parents and children
+    const parents: WorkItem[] = [];
+    const childrenByParent = new Map<number, WorkItem[]>();
+
+    workItems.forEach(wi => {
+      const parentId = wi.fields['System.Parent'];
+      
+      if (parentId && itemMap.has(parentId)) {
+        // This item has a parent in the current list
+        if (!childrenByParent.has(parentId)) {
+          childrenByParent.set(parentId, []);
+        }
+        childrenByParent.get(parentId)!.push(wi);
+      } else {
+        // This is either a parent or an orphan (parent not in current state)
+        parents.push(wi);
+      }
+    });
+
+    // Build tree items
+    return parents.map(parent => {
+      const children = childrenByParent.get(parent.fields['System.Id']) || [];
+      const hasChildren = children.length > 0;
+      
+      const treeItem = new WorkItemTreeItem(
+        parent,
+        hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+        !!parent.fields['System.Parent'] // Show parent in description if this item has a parent not in view
+      );
+      
+      treeItem.children = children;
+      return treeItem;
+    });
   }
 
   private groupByStateCategory(workItems: WorkItem[]): { [key: string]: WorkItem[] } {
@@ -249,12 +303,55 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
         await this.loadWorkItems();
       }
 
-      return this.workItems.map(
-        wi => new WorkItemTreeItem(wi, vscode.TreeItemCollapsibleState.None)
+      return this.buildHierarchy(this.workItems);
+    } else if (element instanceof WorkItemTreeItem) {
+      // Show children of this work item
+      return element.children.map(
+        child => new WorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
       );
     }
 
     return [];
+  }
+
+  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
+    // Create a map of work item ID to work item
+    const itemMap = new Map<number, WorkItem>();
+    workItems.forEach(wi => itemMap.set(wi.fields['System.Id'], wi));
+
+    // Separate parents and children
+    const parents: WorkItem[] = [];
+    const childrenByParent = new Map<number, WorkItem[]>();
+
+    workItems.forEach(wi => {
+      const parentId = wi.fields['System.Parent'];
+      
+      if (parentId && itemMap.has(parentId)) {
+        // This item has a parent in the current list
+        if (!childrenByParent.has(parentId)) {
+          childrenByParent.set(parentId, []);
+        }
+        childrenByParent.get(parentId)!.push(wi);
+      } else {
+        // This is either a parent or an orphan (parent not in current state)
+        parents.push(wi);
+      }
+    });
+
+    // Build tree items
+    return parents.map(parent => {
+      const children = childrenByParent.get(parent.fields['System.Id']) || [];
+      const hasChildren = children.length > 0;
+      
+      const treeItem = new WorkItemTreeItem(
+        parent,
+        hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+        !!parent.fields['System.Parent'] // Show parent in description if this item has a parent not in view
+      );
+      
+      treeItem.children = children;
+      return treeItem;
+    });
   }
 
   getWorkItems(): WorkItem[] {

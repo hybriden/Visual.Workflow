@@ -1,0 +1,11 @@
+      .join('\n');
+  }
+
+  private getUserOptions(currentAssignedTo: string): string {
+    const users = this.teamMembers.filter(user => user.uniqueName !== currentAssignedTo);
+    if (users.length === 0) {
+      return '<option value="">No team members available</option>';
+    }
+    return users.map(user => `<option value="${user.uniqueName}">${user.displayName}</option>`).join('\n');
+  }
+

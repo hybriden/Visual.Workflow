@@ -92,7 +92,7 @@ export class OpenAiService {
   /**
    * Generate a description for a work item
    */
-  public async generateDescription(workItem: WorkItem): Promise<string> {
+  public async generateDescription(workItem: WorkItem, existingDescription?: string): Promise<string> {
     const client = this.createClient();
     const deployment = this.getDeployment();
 
@@ -104,7 +104,7 @@ export class OpenAiService {
     const tags = fields['System.Tags'] || 'None';
 
     // Build context-rich prompt
-    const prompt = this.buildPrompt(title, workItemType, areaPath, iterationPath, tags);
+    const prompt = this.buildPrompt(title, workItemType, areaPath, iterationPath, tags, existingDescription);
 
     try {
       const result = await client.chat.completions.create({
@@ -158,9 +158,24 @@ export class OpenAiService {
     workItemType: string,
     areaPath: string,
     iterationPath: string,
-    tags: string
+    tags: string,
+    existingDescription?: string
   ): string {
-    return `Generate a concise 2-3 sentence description for this Azure DevOps work item:
+    if (existingDescription && existingDescription.trim() !== '') {
+      return `Improve and refine the following description for this Azure DevOps work item:
+
+Type: ${workItemType}
+Title: ${title}
+Area: ${areaPath}
+Iteration: ${iterationPath}
+Tags: ${tags}
+
+Current Description:
+${existingDescription}
+
+Please improve this description by making it clearer, more concise, and more actionable. Keep it to 2-3 sentences. Maintain the core intent but enhance clarity and specificity.`;
+    } else {
+      return `Generate a concise 2-3 sentence description for this Azure DevOps work item:
 
 Type: ${workItemType}
 Title: ${title}
@@ -169,6 +184,7 @@ Iteration: ${iterationPath}
 Tags: ${tags}
 
 Write a clear description of what needs to be done and why. Be specific and actionable.`;
+    }
   }
 
   /**
