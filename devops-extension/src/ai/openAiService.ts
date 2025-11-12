@@ -119,7 +119,7 @@ export class OpenAiService {
             content: prompt
           }
         ],
-        max_completion_tokens: 200
+        max_completion_tokens: 1000
       });
 
       console.log('Azure OpenAI result:', JSON.stringify(result, null, 2));
