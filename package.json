@@ -4,6 +4,19 @@
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
   "version": "0.0.1",
   "publisher": "hans-christian-thjomoe",
+  "author": {
+    "name": "Hans Christian Thjømøe",
+    "url": "https://github.com/hybriden"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hybriden/Visual.Workflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hybriden/Visual.Workflow/issues"
+  },
+  "homepage": "https://github.com/hybriden/Visual.Workflow#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
