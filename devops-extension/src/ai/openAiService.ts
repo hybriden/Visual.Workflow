@@ -122,9 +122,12 @@ export class OpenAiService {
         max_completion_tokens: 200
       });
 
+      console.log('Azure OpenAI result:', JSON.stringify(result, null, 2));
+
       const description = result.choices[0]?.message?.content?.trim();
 
       if (!description) {
+        console.error('No description in result. Choices:', result.choices);
         throw new Error('No description generated');
       }
 
