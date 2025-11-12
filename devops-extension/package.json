@@ -157,6 +157,22 @@
           "type": "boolean",
           "default": false,
           "description": "In Sprint Board, show only items assigned to me"
+        },
+        "azureDevOps.openAiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key for AI-generated work item descriptions (optional)",
+          "scope": "machine-overridable"
+        },
+        "azureDevOps.openAiModel": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "enum": [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-4-turbo"
+          ],
+          "description": "OpenAI model to use for generating descriptions"
         }
       }
     }

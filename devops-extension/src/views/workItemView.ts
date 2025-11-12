@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { WorkItem } from '../models/workItem';
 import { AzureDevOpsApi } from '../azureDevOps/api';
+import { OpenAiService } from '../ai/openAiService';
 
 /**
  * Webview panel for displaying work item details
@@ -11,12 +12,14 @@ export class WorkItemViewPanel {
   private _disposables: vscode.Disposable[] = [];
   private workItem: WorkItem;
   private api: AzureDevOpsApi;
+  private openAiService: OpenAiService;
   private validStates: string[] = [];
 
   private constructor(panel: vscode.WebviewPanel, workItem: WorkItem) {
     this._panel = panel;
     this.workItem = workItem;
     this.api = AzureDevOpsApi.getInstance();
+    this.openAiService = OpenAiService.getInstance();
 
     this._update().catch(error => {
       console.error('Error updating work item view:', error);
@@ -36,6 +39,9 @@ export class WorkItemViewPanel {
             break;
           case 'refresh':
             await this.refresh();
+            break;
+          case 'generateDescription':
+            await this.generateDescription();
             break;
         }
       },
@@ -101,6 +107,55 @@ export class WorkItemViewPanel {
     }
   }
 
+  private async generateDescription() {
+    try {
+      // Check if OpenAI is configured
+      if (!this.openAiService.isConfigured()) {
+        const configured = await this.openAiService.promptForApiKey();
+        if (!configured) {
+          return;
+        }
+      }
+
+      // Show progress
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Generating description with AI...',
+          cancellable: false
+        },
+        async () => {
+          // Generate description
+          const description = await this.openAiService.generateDescription(this.workItem);
+
+          // Update work item with new description
+          const updates = [
+            {
+              op: 'add',
+              path: '/fields/System.Description',
+              value: description
+            }
+          ];
+
+          await this.api.updateWorkItem(this.workItem.id, updates);
+
+          // Refresh the view
+          this.workItem = await this.api.getWorkItem(this.workItem.id);
+          await this._update();
+
+          vscode.window.showInformationMessage('Description generated and saved successfully!');
+
+          // Refresh the sprint board
+          vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to generate description: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
   public dispose() {
     WorkItemViewPanel.currentPanel = undefined;
 
@@ -136,7 +191,9 @@ export class WorkItemViewPanel {
     const state = fields['System.State'];
     const title = fields['System.Title'];
     const id = fields['System.Id'];
-    const description = fields['System.Description'] || 'No description';
+    const description = fields['System.Description'] || '';
+    const hasDescription = description.trim() !== '';
+    const isAiConfigured = this.openAiService.isConfigured();
     const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
     const createdDate = new Date(fields['System.CreatedDate']).toLocaleString();
     const changedDate = new Date(fields['System.ChangedDate']).toLocaleString();
@@ -253,6 +310,24 @@ export class WorkItemViewPanel {
           padding: 15px 0;
           border-top: 1px solid var(--vscode-panel-border);
         }
+        .ai-banner {
+          background-color: var(--vscode-inputValidation-warningBackground);
+          border: 1px solid var(--vscode-inputValidation-warningBorder);
+          border-radius: 4px;
+          padding: 12px;
+          margin: 10px 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .ai-banner-text {
+          flex: 1;
+          color: var(--vscode-foreground);
+        }
+        .ai-banner button {
+          margin-left: 10px;
+          white-space: nowrap;
+        }
       </style>
     </head>
     <body>
@@ -267,7 +342,15 @@ export class WorkItemViewPanel {
 
       <div class="section">
         <div class="section-title">Description</div>
-        <div class="description">${this.stripHtml(description)}</div>
+        ${!hasDescription && isAiConfigured ? `
+          <div class="ai-banner">
+            <div class="ai-banner-text">
+              ⚠️ This work item is missing a description. Would you like to generate one with AI?
+            </div>
+            <button onclick="generateWithAI()">Generate with AI</button>
+          </div>
+        ` : ''}
+        <div class="description">${hasDescription ? this.stripHtml(description) : '<em>No description available</em>'}</div>
       </div>
 
       <div class="section">
@@ -335,6 +418,10 @@ export class WorkItemViewPanel {
 
         function refresh() {
           vscode.postMessage({ command: 'refresh' });
+        }
+
+        function generateWithAI() {
+          vscode.postMessage({ command: 'generateDescription' });
         }
       </script>
     </body>
