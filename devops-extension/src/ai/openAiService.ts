@@ -67,16 +67,14 @@ export class OpenAiService {
   private createClient(): AzureOpenAI {
     const endpoint = this.getEndpoint();
     const apiKey = this.getApiKey();
-    const deployment = this.getDeployment();
 
-    if (!endpoint || !apiKey || !deployment) {
+    if (!endpoint || !apiKey) {
       throw new Error('Azure OpenAI not configured');
     }
 
     return new AzureOpenAI({
       endpoint,
       apiKey,
-      deployment,
       apiVersion: '2024-04-01-preview'
     });
   }
