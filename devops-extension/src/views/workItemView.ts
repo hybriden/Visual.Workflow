@@ -43,6 +43,9 @@ export class WorkItemViewPanel {
           case 'generateDescription':
             await this.generateDescription();
             break;
+          case 'saveDescription':
+            await this.saveDescription(message.description);
+            break;
         }
       },
       null,
@@ -152,6 +155,44 @@ export class WorkItemViewPanel {
     } catch (error) {
       vscode.window.showErrorMessage(
         `Failed to generate description: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async saveDescription(description: string) {
+    try {
+      // Show progress
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Saving description...',
+          cancellable: false
+        },
+        async () => {
+          // Update work item with new description
+          const updates = [
+            {
+              op: 'add',
+              path: '/fields/System.Description',
+              value: description
+            }
+          ];
+
+          await this.api.updateWorkItem(this.workItem.id, updates);
+
+          // Refresh the view
+          this.workItem = await this.api.getWorkItem(this.workItem.id);
+          await this._update();
+
+          vscode.window.showInformationMessage('Description saved successfully!');
+
+          // Refresh the sprint board
+          vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to save description: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }
@@ -328,6 +369,39 @@ export class WorkItemViewPanel {
           margin-left: 10px;
           white-space: nowrap;
         }
+        .description-textarea {
+          width: 100%;
+          min-height: 150px;
+          background-color: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          border: 1px solid var(--vscode-input-border);
+          padding: 12px;
+          font-family: var(--vscode-font-family);
+          font-size: 13px;
+          border-radius: 2px;
+          resize: vertical;
+        }
+        .description-textarea:focus {
+          outline: 1px solid var(--vscode-focusBorder);
+        }
+        .section-title {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .ai-icon-btn {
+          background-color: var(--vscode-button-secondaryBackground);
+          color: var(--vscode-button-secondaryForeground);
+          border: none;
+          padding: 4px 8px;
+          font-size: 11px;
+          cursor: pointer;
+          border-radius: 2px;
+          margin-left: 10px;
+        }
+        .ai-icon-btn:hover {
+          background-color: var(--vscode-button-secondaryHoverBackground);
+        }
       </style>
     </head>
     <body>
@@ -341,16 +415,14 @@ export class WorkItemViewPanel {
       </div>
 
       <div class="section">
-        <div class="section-title">Description</div>
-        ${!hasDescription && isAiConfigured ? `
-          <div class="ai-banner">
-            <div class="ai-banner-text">
-              ⚠️ This work item is missing a description. Would you like to generate one with AI?
-            </div>
-            <button onclick="generateWithAI()">Generate with AI</button>
-          </div>
-        ` : ''}
-        <div class="description">${hasDescription ? this.stripHtml(description) : '<em>No description available</em>'}</div>
+        <div class="section-title">
+          Description
+          ${isAiConfigured ? `<button class="ai-icon-btn" onclick="generateWithAI()" title="Generate description with AI">✨ AI</button>` : ''}
+        </div>
+        <textarea id="descriptionText" class="description-textarea" placeholder="Enter work item description...">${this.stripHtml(description)}</textarea>
+        <div style="margin-top: 10px;">
+          <button onclick="saveDescription()">Save Description</button>
+        </div>
       </div>
 
       <div class="section">
@@ -422,6 +494,15 @@ export class WorkItemViewPanel {
 
         function generateWithAI() {
           vscode.postMessage({ command: 'generateDescription' });
+        }
+
+        function saveDescription() {
+          const textarea = document.getElementById('descriptionText');
+          const newDescription = textarea.value;
+          vscode.postMessage({
+            command: 'saveDescription',
+            description: newDescription
+          });
         }
       </script>
     </body>
