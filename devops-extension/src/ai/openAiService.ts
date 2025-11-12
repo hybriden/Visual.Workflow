@@ -62,24 +62,33 @@ export class OpenAiService {
   }
 
   /**
+   * Get the configured API version
+   */
+  private getApiVersion(): string {
+    const config = vscode.workspace.getConfiguration('azureDevOps');
+    return config.get<string>('azureOpenAiApiVersion', '2024-04-01-preview');
+  }
+
+  /**
    * Create Azure OpenAI client with current configuration
    */
   private createClient(): AzureOpenAI {
     const endpoint = this.getEndpoint();
     const apiKey = this.getApiKey();
     const deployment = this.getDeployment();
+    const apiVersion = this.getApiVersion();
 
     if (!endpoint || !apiKey || !deployment) {
       throw new Error('Azure OpenAI not configured');
     }
 
-    console.log('Azure OpenAI config:', { endpoint, deployment, hasKey: !!apiKey });
+    console.log('Azure OpenAI config:', { endpoint, deployment, apiVersion, hasKey: !!apiKey });
 
     return new AzureOpenAI({
       endpoint,
       apiKey,
       deployment,
-      apiVersion: '2024-04-01-preview'
+      apiVersion
     });
   }
 
