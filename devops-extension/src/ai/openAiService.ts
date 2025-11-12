@@ -67,14 +67,18 @@ export class OpenAiService {
   private createClient(): AzureOpenAI {
     const endpoint = this.getEndpoint();
     const apiKey = this.getApiKey();
+    const deployment = this.getDeployment();
 
-    if (!endpoint || !apiKey) {
+    if (!endpoint || !apiKey || !deployment) {
       throw new Error('Azure OpenAI not configured');
     }
+
+    console.log('Azure OpenAI config:', { endpoint, deployment, hasKey: !!apiKey });
 
     return new AzureOpenAI({
       endpoint,
       apiKey,
+      deployment,
       apiVersion: '2024-04-01-preview'
     });
   }
@@ -121,10 +125,13 @@ export class OpenAiService {
 
       return description;
     } catch (error: any) {
+      console.error('Azure OpenAI error details:', error);
+
       if (error.status === 401) {
         throw new Error('Invalid Azure OpenAI API key. Please check your configuration.');
       } else if (error.status === 404) {
-        throw new Error('Azure OpenAI deployment not found. Please check your endpoint and deployment name.');
+        const errorDetails = error.error?.message || error.message || 'Unknown error';
+        throw new Error(`Azure OpenAI deployment not found. Details: ${errorDetails}\n\nEndpoint: ${this.getEndpoint()}\nDeployment: ${deployment}`);
       } else if (error.status === 429) {
         throw new Error('Azure OpenAI rate limit exceeded. Please try again later.');
       } else if (error.message) {
