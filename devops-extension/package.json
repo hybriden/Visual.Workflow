@@ -1,0 +1,183 @@
+{
+  "name": "azure-devops-workflow",
+  "displayName": "Azure DevOps Workflow",
+  "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
+  "version": "0.0.1",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "azureDevOps.openSprintBoard",
+        "title": "Azure DevOps: Open Sprint Board",
+        "icon": "$(project)"
+      },
+      {
+        "command": "azureDevOps.openWorkItem",
+        "title": "Azure DevOps: Open Work Item",
+        "icon": "$(search)"
+      },
+      {
+        "command": "azureDevOps.createWorkItem",
+        "title": "Azure DevOps: Create Work Item",
+        "icon": "$(add)"
+      },
+      {
+        "command": "azureDevOps.refreshWorkItems",
+        "title": "Azure DevOps: Refresh Work Items",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.changeWorkItemStatus",
+        "title": "Azure DevOps: Change Work Item Status",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "azureDevOps.viewWorkItemDetails",
+        "title": "Azure DevOps: View Work Item Details"
+      },
+      {
+        "command": "azureDevOps.setupWizard",
+        "title": "Azure DevOps: Setup Wizard",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "azureDevOps.toggleCompletedItems",
+        "title": "Azure DevOps: Toggle Show/Hide Completed Items",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "azureDevOps.toggleRemovedItems",
+        "title": "Azure DevOps: Toggle Show/Hide Removed Items",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "azureDevOps.clearAllFilters",
+        "title": "Azure DevOps: Clear All Filters",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "azureDevOps.switchProject",
+        "title": "Azure DevOps: Switch Project",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "azureDevOps.quickSwitchProject",
+        "title": "Azure DevOps: Quick Switch Project",
+        "icon": "$(arrow-swap)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "azureDevOps.openSprintBoard",
+        "key": "ctrl+alt+s",
+        "mac": "cmd+alt+s"
+      },
+      {
+        "command": "azureDevOps.openWorkItem",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o"
+      },
+      {
+        "command": "azureDevOps.changeWorkItemStatus",
+        "key": "ctrl+alt+u",
+        "mac": "cmd+alt+u"
+      },
+      {
+        "command": "azureDevOps.quickSwitchProject",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "azureDevOpsWorkflow",
+          "title": "Azure DevOps",
+          "icon": "resources/devops-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "azureDevOpsWorkflow": [
+        {
+          "id": "azureDevOpsSprintBoard",
+          "name": "Sprint Board"
+        },
+        {
+          "id": "azureDevOpsMyWorkItems",
+          "name": "My Work Items"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Azure DevOps Workflow",
+      "properties": {
+        "azureDevOps.organization": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps organization name (e.g., 'myorg' from dev.azure.com/myorg)"
+        },
+        "azureDevOps.pat": {
+          "type": "string",
+          "default": "",
+          "description": "Personal Access Token for authentication",
+          "scope": "machine-overridable"
+        },
+        "azureDevOps.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh work items"
+        },
+        "azureDevOps.refreshInterval": {
+          "type": "number",
+          "default": 300,
+          "description": "Auto-refresh interval in seconds (default: 5 minutes)"
+        },
+        "azureDevOps.hideCompletedItems": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hide completed work items (Done, Closed, Resolved)"
+        },
+        "azureDevOps.hideRemovedItems": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hide removed work items"
+        },
+        "azureDevOps.showOnlyAssignedToMe": {
+          "type": "boolean",
+          "default": false,
+          "description": "In Sprint Board, show only items assigned to me"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "axios": "^1.6.2"
+  }
+}

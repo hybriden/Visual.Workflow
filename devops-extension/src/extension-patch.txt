@@ -1,0 +1,14 @@
+
+/**
+ * Update status bar with current project
+ */
+function updateStatusBar(auth: AzureDevOpsAuth) {
+  const project = auth.getProject();
+  if (project) {
+    statusBarItem.text = `$(project) ${project}`;
+    statusBarItem.tooltip = `Azure DevOps: ${project} (Click to switch)`;
+  } else {
+    statusBarItem.text = '$(project) Azure DevOps';
+    statusBarItem.tooltip = 'Azure DevOps (Not configured)';
+  }
+}
