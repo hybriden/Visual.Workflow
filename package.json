@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -90,11 +90,6 @@
         "command": "azureDevOps.quickSwitchProject",
         "title": "Azure DevOps: Quick Switch Project",
         "icon": "$(arrow-swap)"
-      },
-      {
-        "command": "azureDevOps.selectAiProvider",
-        "title": "Azure DevOps: Select AI Provider",
-        "icon": "$(settings-gear)"
       },
       {
         "command": "azureDevOps.showAiStatus",
@@ -204,21 +199,10 @@
           "default": false,
           "description": "In Sprint Board, show only items assigned to me"
         },
-        "azureDevOps.aiProvider": {
-          "type": "string",
-          "enum": ["copilot", "claude", "none"],
-          "default": "copilot",
-          "enumDescriptions": [
-            "Use GitHub Copilot for AI-powered suggestions",
-            "Use Claude Code for AI-powered suggestions",
-            "Disable AI-powered features"
-          ],
-          "description": "AI provider for generating work item descriptions and implementation plans"
-        },
         "azureDevOps.enableAiSuggestions": {
           "type": "boolean",
           "default": true,
-          "description": "Enable AI-powered suggestions for work item descriptions (GitHub Copilot or Claude Code)"
+          "description": "Enable AI-powered suggestions for work item descriptions using GitHub Copilot"
         }
       }
     }

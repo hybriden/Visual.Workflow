@@ -16,6 +16,7 @@ export class WorkItemViewPanel {
   private aiManager: AiServiceManager;
   private validStates: string[] = [];
   private parentWorkItem: WorkItem | undefined;
+  private comments: any[] = [];
 
   private constructor(panel: vscode.WebviewPanel, workItem: WorkItem) {
     this._panel = panel;
@@ -138,28 +139,25 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if current AI provider is available
-      if (!await this.aiManager.isCurrentProviderAvailable()) {
-        const select = await vscode.window.showInformationMessage(
-          'No AI provider is currently available. Would you like to select one?',
-          'Select Provider',
+      // Check if Copilot is available
+      if (!await this.aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
           'Cancel'
         );
 
-        if (select === 'Select Provider') {
-          await this.aiManager.selectAiProvider();
+        if (install === 'Install') {
+          await this.aiManager.promptToInstallCopilot();
         }
         return;
       }
-
-      const provider = this.aiManager.getConfiguredProvider();
-      const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
 
       // Show progress
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Generating description with ${providerName}...`,
+          title: 'Generating description with GitHub Copilot...',
           cancellable: false
         },
         async () => {
@@ -250,28 +248,25 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if current AI provider is available
-      if (!await this.aiManager.isCurrentProviderAvailable()) {
-        const select = await vscode.window.showInformationMessage(
-          'No AI provider is currently available. Would you like to select one?',
-          'Select Provider',
+      // Check if Copilot is available
+      if (!await this.aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
           'Cancel'
         );
 
-        if (select === 'Select Provider') {
-          await this.aiManager.selectAiProvider();
+        if (install === 'Install') {
+          await this.aiManager.promptToInstallCopilot();
         }
         return;
       }
-
-      const provider = this.aiManager.getConfiguredProvider();
-      const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
 
       // Generate the plan
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Generating implementation plan with ${providerName}...`,
+          title: 'Generating implementation plan with GitHub Copilot...',
           cancellable: false
         },
         async () => {
@@ -330,6 +325,14 @@ export class WorkItemViewPanel {
       this.parentWorkItem = undefined;
     }
 
+    // Fetch comments for this work item
+    try {
+      this.comments = await this.api.getWorkItemComments(this.workItem.id);
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+      this.comments = [];
+    }
+
     this._panel.webview.html = await this._getHtmlForWebview(webview);
   }
 
@@ -342,7 +345,7 @@ export class WorkItemViewPanel {
     const description = fields['System.Description'] || '';
     const hasDescription = description.trim() !== '';
     const isAiEnabled = this.aiManager.isAiEnabled();
-    const isAiProviderAvailable = await this.aiManager.isCurrentProviderAvailable();
+    const isAiProviderAvailable = await this.aiManager.isCopilotAvailable();
     const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
     const createdDate = new Date(fields['System.CreatedDate']).toLocaleString();
     const changedDate = new Date(fields['System.ChangedDate']).toLocaleString();
@@ -528,6 +531,47 @@ export class WorkItemViewPanel {
         .ai-plan-btn:hover {
           background: linear-gradient(135deg, #5568d3 0%, #653a8a 100%);
         }
+        .comments-container {
+          margin-top: 10px;
+        }
+        .comment {
+          background-color: var(--vscode-editor-background);
+          border: 1px solid var(--vscode-panel-border);
+          border-radius: 4px;
+          padding: 12px;
+          margin-bottom: 10px;
+        }
+        .comment-header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        .comment-author {
+          font-weight: 600;
+          color: var(--vscode-foreground);
+        }
+        .comment-date {
+          color: var(--vscode-descriptionForeground);
+          font-size: 12px;
+        }
+        .comment-text {
+          color: var(--vscode-foreground);
+          line-height: 1.5;
+          white-space: pre-wrap;
+        }
+        .comment-text strong {
+          color: var(--vscode-textLink-foreground);
+          font-weight: 600;
+        }
+        .comment-text a {
+          color: var(--vscode-textLink-foreground);
+          text-decoration: none;
+        }
+        .comment-text a:hover {
+          text-decoration: underline;
+        }
       </style>
     </head>
     <body>
@@ -586,6 +630,23 @@ export class WorkItemViewPanel {
           <div class="field-value">${changedDate}</div>
         </div>
       </div>
+
+      ${this.comments.length > 0 ? `
+      <div class="section">
+        <div class="section-title">Comments (${this.comments.length})</div>
+        <div class="comments-container">
+          ${this.comments.map(comment => `
+            <div class="comment">
+              <div class="comment-header">
+                <span class="comment-author">${this.escapeHtml(comment.createdBy?.displayName || 'Unknown')}</span>
+                <span class="comment-date">${new Date(comment.createdDate).toLocaleString()}</span>
+              </div>
+              <div class="comment-text">${this.sanitizeCommentHtml(comment.text)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      ` : ''}
 
       <div class="actions">
         <div class="section-title">Actions</div>
@@ -681,5 +742,63 @@ export class WorkItemViewPanel {
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
       .trim();
+  }
+
+  private escapeHtml(text: string): string {
+    if (!text) return '';
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .replace(/\n/g, '<br>');
+  }
+
+  private sanitizeCommentHtml(html: string): string {
+    if (!html) return '';
+
+    // Allow safe HTML tags and attributes for comment rendering
+    // This handles Azure DevOps comment formatting including mentions
+    let result = html;
+
+    // First, handle mentions with GUIDs that appear as @&lt;GUID&gt; (outside of link tags)
+    // Use a more flexible pattern that handles hexadecimal characters
+    result = result.replace(/@&lt;([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})&gt;/g, '<strong>@User</strong>');
+
+    // Also handle @<GUID> format (if angle brackets are not encoded)
+    result = result.replace(/@<([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>/g, '<strong>@User</strong>');
+
+    // Convert Azure DevOps mentions inside link tags to plain text
+    // Handle mentions with display names (e.g., @Stefan Holm Olsen)
+    result = result.replace(/<a[^>]*data-vss-mention[^>]*>@([^<]+)<\/a>/gi, (match, name) => {
+      // Decode HTML entities first (e.g., &lt; to <, &gt; to >)
+      const decodedName = name
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+
+      // Check if the name is a GUID pattern (UUID), with or without angle brackets
+      const guidPattern = /^<?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?$/;
+      if (guidPattern.test(decodedName)) {
+        // If it's a GUID, just show "@User" instead of the GUID
+        return '<strong>@User</strong>';
+      }
+      // Otherwise, show the actual name (keep HTML encoded for safety)
+      return `<strong>@${name}</strong>`;
+    });
+
+    // Keep basic formatting tags
+    result = result.replace(/<div>/gi, '');
+    result = result.replace(/<\/div>/gi, '<br>');
+    result = result.replace(/&nbsp;/g, ' ');
+
+    // Remove any remaining attributes from links but keep the link
+    result = result.replace(/<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>');
+
+    // Clean up multiple line breaks
+    result = result.replace(/(<br>\s*){3,}/gi, '<br><br>');
+
+    return result;
   }
 }

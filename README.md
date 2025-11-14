@@ -1,6 +1,6 @@
 # Azure DevOps Workflow
 
-Manage your Azure DevOps work items, sprint boards, and task status directly from Visual Studio Code.
+Manage your Azure DevOps work items, sprint boards, and task status directly from Visual Studio Code with AI-powered assistance from GitHub Copilot.
 
 ## Features
 
@@ -9,11 +9,12 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **My Work Items**: See all work items assigned to you in a separate view
 - **Quick Project Switching**: Switch between projects instantly with `Ctrl+Alt+P`
 - **Quick Open Work Items**: Search and open work items with keyboard shortcuts
-- **AI-Powered Features**: Generate descriptions and implementation plans using GitHub Copilot or Claude Code
+- **AI-Powered Features**: Generate descriptions and implementation plans using GitHub Copilot
 - **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Smart Filtering**: Hide completed/removed items by default (configurable)
 - **Auto-refresh**: Keep your work items up to date automatically
 - **Status Bar Integration**: See current project at a glance
+- **Parent Work Item Navigation**: Click on parent work items to view their details
 
 ## Setup
 
@@ -37,48 +38,75 @@ That's it! No need to manually type project names.
 
 ### Optional: AI-Powered Features
 
-This extension supports AI-powered work item descriptions and implementation plans using either **GitHub Copilot** or **Claude Code**.
+This extension supports AI-powered work item descriptions and implementation plans using **GitHub Copilot**.
 
-#### Using GitHub Copilot
+#### Setting Up GitHub Copilot
 
 1. Install the [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) extension
 2. Sign in to your GitHub account with an active Copilot subscription
 3. The extension will automatically detect and use Copilot
 
-#### Using Claude Code
+#### AI Features Available:
 
-1. Install the [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-vscode) extension
-2. Sign in to your Anthropic account
-3. Select Claude as your AI provider:
-   - Press `F1` and type "Azure DevOps: Select AI Provider"
-   - Choose "Claude Code"
+- **✨ Generate Description**: AI-powered generation of clear, concise work item descriptions
+  - Click the "Generate with AI" button in the work item details view
+  - AI analyzes the title, type, area path, iteration, and tags to create contextual descriptions
+  - Review and accept, edit, or cancel the generated description
 
-#### Features Available with AI:
-- **✨ Generate Description**: Click the AI button next to any work item description
-- **🎯 Generate Plan**: Click the Plan button to get a detailed implementation plan with:
-  - Analysis of requirements
-  - Step-by-step implementation guide
-  - Testing strategy
-  - Potential challenges
-  - Complexity estimation
+- **🎯 Generate Implementation Plan**: Get detailed implementation plans with:
+  - Analysis of requirements and considerations
+  - Step-by-step implementation guide with technical details
+  - Testing strategy and approach
+  - Potential challenges and gotchas
+  - Complexity estimation (Simple/Medium/Complex)
 
-You can switch between AI providers anytime using the "Select AI Provider" command.
+- **💡 Smart Context Awareness**: AI uses your work item metadata to generate relevant suggestions:
+  - Work item title and type (Task, User Story, Bug, Feature, etc.)
+  - Area path (team/feature context)
+  - Iteration path (sprint context)
+  - Tags and existing description (for improvements)
+
+#### Managing AI Features:
+
+Use the Command Palette to manage AI settings:
+- **"Azure DevOps: Show AI Status"** - Check if Copilot is installed and available
+- **"Azure DevOps: Toggle AI Suggestions"** - Enable or disable AI features
 
 ## Keyboard Shortcuts
 
 - `Ctrl+Alt+S` (Mac: `Cmd+Alt+S`): Open Sprint Board
 - `Ctrl+Alt+O` (Mac: `Cmd+Alt+O`): Quick Open Work Item
 - `Ctrl+Alt+U` (Mac: `Cmd+Alt+U`): Change Work Item Status
-- `Ctrl+Alt+P` (Mac: `Cmd+Alt+P`): **Quick Switch Project**
+- `Ctrl+Alt+P` (Mac: `Cmd+Alt+P`): Quick Switch Project
 
 ## Usage
 
 ### Viewing Work Items
 
-1. Open the Azure DevOps panel from the Activity Bar
-2. View your sprint board organized by state (To Do, In Progress, Done, Removed)
+1. Open the Azure DevOps panel from the Activity Bar (look for the Azure DevOps icon)
+2. View your sprint board organized by state:
+   - **To Do**: Work items not yet started
+   - **In Progress**: Work items currently being worked on
+   - **Done**: Completed work items (hidden by default)
+   - **Removed**: Removed or cut work items (hidden by default)
 3. View your assigned work items in the "My Work Items" section
 4. Click on any work item to view full details in a webview panel
+
+### Work Item Details View
+
+When you click on a work item, you'll see:
+- Work item ID, title, type, and state
+- Assigned to, created date, and last changed date
+- Area path and iteration path
+- Tags and remaining work hours
+- Full description with HTML rendering
+- Parent work item link (if applicable)
+- Quick actions:
+  - **State dropdown**: Change work item state with valid transitions only
+  - **Refresh button**: Reload work item data
+  - **Generate Description button**: Create AI-powered descriptions (if AI is enabled)
+  - **Generate Plan button**: Create implementation plans (if AI is enabled)
+  - **Open in Browser**: View work item in Azure DevOps web portal
 
 ### Switching Projects
 
@@ -98,72 +126,144 @@ The state dropdown dynamically shows only valid state transitions for your Azure
 
 ### Generating Descriptions with AI
 
-When viewing a work item without a description:
-1. A yellow banner appears: "⚠️ This work item is missing a description. Would you like to generate one with AI?"
-2. Click "Generate with AI"
-3. Wait 2-3 seconds while AI generates a context-aware description
-4. The description is automatically saved to Azure DevOps
+When viewing a work item:
+1. Click the "Generate Description with AI" button (sparkle icon)
+2. If AI is disabled, you'll be prompted to enable it
+3. If Copilot is not available, you'll be prompted to install it
+4. Wait 2-3 seconds while Copilot generates a context-aware description
+5. Review the generated description
+6. Choose to Accept, Edit, or Cancel
 
-**What context does AI use?**
+**AI uses the following context:**
 - Work item title
-- Work item type (Task, User Story, Bug, etc.)
+- Work item type (Task, User Story, Bug, Feature, etc.)
 - Area path (team/feature context)
 - Iteration path (sprint context)
 - Tags
+- Existing description (for improvement suggestions)
 
-**Why Azure OpenAI?**
-- Enterprise-grade security and compliance
-- Data stays in your Azure region
-- Predictable pricing through Azure subscriptions
-- Same models as OpenAI, hosted in Azure
+**Benefits of AI-Generated Descriptions:**
+- Consistent, professional descriptions across all work items
+- Saves time on documentation
+- Ensures all team members understand work item requirements
+- Contextual suggestions based on your project metadata
+
+### Generating Implementation Plans with AI
+
+1. Open a work item in the details view
+2. Click the "Plan" button
+3. Copilot analyzes the work item and generates a comprehensive plan
+4. The plan opens in a dedicated view with formatted markdown
+5. Use the plan to guide your implementation
+
+**Implementation plans include:**
+- **Analysis**: Understanding of requirements and key considerations
+- **Implementation Steps**: Numbered, actionable steps with technical details
+- **Testing Strategy**: How to validate the changes
+- **Potential Challenges**: Things to watch out for and gotchas
+- **Estimated Complexity**: Simple, Medium, or Complex rating
 
 ### Filtering Work Items
 
-Use the Command Palette:
-- "Toggle Show/Hide Completed Items" - Hide/show Done/Closed/Resolved items
-- "Toggle Show/Hide Removed Items" - Hide/show Removed/Cut items
-- "Clear All Filters" - Show all work items
+Use the Command Palette (`F1`):
+- **"Toggle Show/Hide Completed Items"** - Show/hide Done, Closed, and Resolved items
+- **"Toggle Show/Hide Removed Items"** - Show/hide Removed and Cut items
+- **"Clear All Filters"** - Show all work items regardless of state
+
+Default behavior:
+- Completed items are hidden (configurable via `azureDevOps.hideCompletedItems`)
+- Removed items are hidden (configurable via `azureDevOps.hideRemovedItems`)
+
+### Auto-Refresh
+
+Work items automatically refresh every 5 minutes by default. You can:
+- Change the interval in settings (`azureDevOps.refreshInterval`)
+- Disable auto-refresh (`azureDevOps.autoRefresh`)
+- Manually refresh using the refresh button or command
 
 ## Extension Settings
 
 This extension contributes the following settings:
 
-**Azure DevOps Settings:**
+### Azure DevOps Settings
+
 - `azureDevOps.organization`: Your Azure DevOps organization name
 - `azureDevOps.pat`: Personal Access Token (stored securely)
-- `azureDevOps.autoRefresh`: Enable/disable auto-refresh (default: true)
-- `azureDevOps.refreshInterval`: Refresh interval in seconds (default: 300)
-- `azureDevOps.hideCompletedItems`: Hide completed work items (default: true)
-- `azureDevOps.hideRemovedItems`: Hide removed work items (default: true)
-- `azureDevOps.showOnlyAssignedToMe`: In Sprint Board, show only items assigned to me (default: false)
+- `azureDevOps.project`: Current project name (managed by Setup Wizard and Quick Switch)
+- `azureDevOps.team`: Current team name (managed by Setup Wizard)
+- `azureDevOps.autoRefresh`: Enable/disable auto-refresh (default: `true`)
+- `azureDevOps.refreshInterval`: Refresh interval in seconds (default: `300`)
+- `azureDevOps.hideCompletedItems`: Hide completed work items (default: `true`)
+- `azureDevOps.hideRemovedItems`: Hide removed work items (default: `true`)
+- `azureDevOps.showOnlyAssignedToMe`: In Sprint Board, show only items assigned to me (default: `false`)
 
-**Azure OpenAI Settings (Optional):**
-- `azureDevOps.azureOpenAiEndpoint`: Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com)
-- `azureDevOps.azureOpenAiKey`: Azure OpenAI API key
-- `azureDevOps.azureOpenAiDeployment`: Deployment name (e.g., gpt-4o-mini)
+### AI Settings
 
-**Note**: Project and team are managed via the Setup Wizard and Quick Switch, not manually in settings.
+- `azureDevOps.enableAiSuggestions`: Enable AI-powered suggestions for work item descriptions using GitHub Copilot (default: `true`)
+
+**Note**: Project and team settings are managed via the Setup Wizard and Quick Switch commands, not manually in settings.
 
 ## Requirements
 
+- Visual Studio Code 1.85.0 or higher
 - Azure DevOps account
 - Personal Access Token with Work Items (Read & Write) permissions
-- (Optional) Azure OpenAI resource for AI-generated descriptions
+- (Optional) GitHub Copilot subscription for AI features
+
+## Privacy & Security
+
+- Your Personal Access Token is stored securely in VS Code's configuration
+- AI features use GitHub Copilot's Language Model API (vscode.lm)
+- Work item data is sent to GitHub Copilot only when you explicitly request AI features
+- No data is stored or logged by this extension beyond VS Code's standard configuration
 
 ## Known Issues
 
-None currently. Please report issues on GitHub.
+None currently. Please report issues on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
 
 ## Release Notes
 
+### 0.1.1
+
+**AI Integration Updates:**
+- Removed experimental Claude Code support (Language Model API only supports Copilot)
+- Simplified AI integration to focus exclusively on GitHub Copilot
+- Improved error messages for Copilot availability
+- Better detection of Copilot installation status
+- Fixed "plugin not installed" errors
+- Updated all AI-related commands and views
+
+### 0.1.0
+
+**Major AI Features Release:**
+- Added GitHub Copilot integration for AI-powered work item descriptions
+- Added implementation plan generation with detailed technical guidance
+- Added AI-powered field suggestions
+- Enhanced work item details view with AI buttons
+- Added dedicated plan view panel with markdown rendering
+- Added AI status and configuration commands
+- Enabled Language Model API proposal for Copilot access
+
 ### 0.0.1
 
-Initial release with:
+**Initial Release:**
 - Sprint board and My Work Items views
 - Setup wizard with automatic project fetching
 - Quick project switching
 - Dynamic state transitions from Azure DevOps API
-- AI-powered description generation using Azure OpenAI (optional)
 - Smart filtering for completed and removed items
 - Keyboard shortcuts for all major actions
 - Auto-refresh functionality
+- Status bar integration
+
+## Feedback & Contributing
+
+Found a bug or have a feature request? Please open an issue on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
+
+## License
+
+MIT
+
+---
+
+**Enjoy managing your Azure DevOps workflow from VS Code!**

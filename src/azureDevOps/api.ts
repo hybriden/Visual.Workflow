@@ -300,6 +300,22 @@ export class AzureDevOpsApi {
   }
 
   /**
+   * Get work item comments
+   */
+  public async getWorkItemComments(id: number): Promise<any[]> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/wit/workItems/${id}/comments?api-version=7.1-preview.3`;
+      const response = await this.axiosInstance.get(url);
+      return response.data.comments || [];
+    } catch (error: any) {
+      console.error(`Error fetching comments for work item ${id}:`, error);
+      // Return empty array if comments API fails (some orgs may not have it enabled)
+      // This is a preview API and may not be available in all Azure DevOps instances
+      return [];
+    }
+  }
+
+  /**
    * Update work item
    */
   public async updateWorkItem(id: number, updates: Array<{ op: string; path: string; value: any }>): Promise<WorkItem> {

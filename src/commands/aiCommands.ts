@@ -3,7 +3,7 @@ import { AiServiceManager } from '../ai/aiServiceManager';
 import { SprintBoardProvider, MyWorkItemsProvider } from '../views/sprintPanel';
 
 /**
- * Register AI-related commands (GitHub Copilot and Claude Code)
+ * Register AI-related commands (GitHub Copilot)
  */
 export function registerAiCommands(
   context: vscode.ExtensionContext,
@@ -12,31 +12,17 @@ export function registerAiCommands(
 ): void {
   const aiManager = AiServiceManager.getInstance();
 
-  // Select AI Provider
-  context.subscriptions.push(
-    vscode.commands.registerCommand('azureDevOps.selectAiProvider', async () => {
-      await aiManager.selectAiProvider();
-    })
-  );
-
-  // Show AI Provider Status
+  // Show AI Status
   context.subscriptions.push(
     vscode.commands.registerCommand('azureDevOps.showAiStatus', async () => {
-      await aiManager.showProviderStatus();
+      await aiManager.showStatus();
     })
   );
 
   // Toggle AI Suggestions
   context.subscriptions.push(
     vscode.commands.registerCommand('azureDevOps.toggleAiSuggestions', async () => {
-      const config = vscode.workspace.getConfiguration('azureDevOps');
-      const currentValue = config.get<boolean>('enableAiSuggestions', true);
-
-      await config.update('enableAiSuggestions', !currentValue, vscode.ConfigurationTarget.Global);
-
-      vscode.window.showInformationMessage(
-        `AI suggestions ${!currentValue ? 'enabled' : 'disabled'}`
-      );
+      await aiManager.toggleAiSuggestions();
     })
   );
 
@@ -59,32 +45,28 @@ export function registerAiCommands(
           return;
         }
 
-        const config = vscode.workspace.getConfiguration('azureDevOps');
-        await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
+        await aiManager.setAiEnabled(true);
       }
 
-      // Check if current AI provider is available
-      if (!await aiManager.isCurrentProviderAvailable()) {
-        const select = await vscode.window.showInformationMessage(
-          'No AI provider is currently available. Would you like to select one?',
-          'Select Provider',
+      // Check if Copilot is available
+      if (!await aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
           'Cancel'
         );
 
-        if (select === 'Select Provider') {
-          await aiManager.selectAiProvider();
+        if (install === 'Install') {
+          await aiManager.promptToInstallCopilot();
         }
         return;
       }
 
       try {
-        const provider = aiManager.getConfiguredProvider();
-        const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
-
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `Generating description with ${providerName}...`,
+            title: 'Generating description with GitHub Copilot...',
             cancellable: false
           },
           async () => {
