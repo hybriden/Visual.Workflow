@@ -9,7 +9,7 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **My Work Items**: See all work items assigned to you in a separate view
 - **Quick Project Switching**: Switch between projects instantly with `Ctrl+Alt+P`
 - **Quick Open Work Items**: Search and open work items with keyboard shortcuts
-- **AI-Powered Descriptions**: Generate work item descriptions using Azure OpenAI (optional)
+- **AI-Powered Features**: Generate descriptions and implementation plans using GitHub Copilot or Claude Code
 - **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Smart Filtering**: Hide completed/removed items by default (configurable)
 - **Auto-refresh**: Keep your work items up to date automatically
@@ -35,24 +35,34 @@ That's it! No need to manually type project names.
 2. Create a new token with **"Work Items (Read & Write)"** permissions
 3. Copy the token and paste it in the setup wizard
 
-### Optional: AI-Powered Descriptions with Azure OpenAI
+### Optional: AI-Powered Features
 
-To enable AI-generated descriptions for work items, you'll need an Azure OpenAI resource:
+This extension supports AI-powered work item descriptions and implementation plans using either **GitHub Copilot** or **Claude Code**.
 
-1. **Create Azure OpenAI resource** (if you don't have one):
-   - Go to Azure Portal → Create Resource → Azure OpenAI
-   - Deploy a model (e.g., gpt-4o-mini, gpt-4o)
-   - Note your endpoint URL and API key
+#### Using GitHub Copilot
 
-2. **Configure in VS Code**:
-   - Open Settings (`Ctrl+,`)
-   - Search for "Azure DevOps: Azure OpenAI"
-   - Configure:
-     - **Endpoint**: `https://your-resource.openai.azure.com`
-     - **API Key**: Your Azure OpenAI key
-     - **Deployment**: Your deployment name (e.g., `gpt-4o-mini`)
+1. Install the [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) extension
+2. Sign in to your GitHub account with an active Copilot subscription
+3. The extension will automatically detect and use Copilot
 
-Once configured, work items without descriptions will show a "Generate with AI" button.
+#### Using Claude Code
+
+1. Install the [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-vscode) extension
+2. Sign in to your Anthropic account
+3. Select Claude as your AI provider:
+   - Press `F1` and type "Azure DevOps: Select AI Provider"
+   - Choose "Claude Code"
+
+#### Features Available with AI:
+- **✨ Generate Description**: Click the AI button next to any work item description
+- **🎯 Generate Plan**: Click the Plan button to get a detailed implementation plan with:
+  - Analysis of requirements
+  - Step-by-step implementation guide
+  - Testing strategy
+  - Potential challenges
+  - Complexity estimation
+
+You can switch between AI providers anytime using the "Select AI Provider" command.
 
 ## Keyboard Shortcuts
 
