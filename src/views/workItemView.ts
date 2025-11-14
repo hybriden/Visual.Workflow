@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { WorkItem } from '../models/workItem';
 import { AzureDevOpsApi } from '../azureDevOps/api';
-import { OpenAiService } from '../ai/openAiService';
+import { AiServiceManager } from '../ai/aiServiceManager';
+import { PlanViewPanel } from './planView';
 
 /**
  * Webview panel for displaying work item details
@@ -12,7 +13,7 @@ export class WorkItemViewPanel {
   private _disposables: vscode.Disposable[] = [];
   private workItem: WorkItem;
   private api: AzureDevOpsApi;
-  private openAiService: OpenAiService;
+  private aiManager: AiServiceManager;
   private validStates: string[] = [];
   private parentWorkItem: WorkItem | undefined;
 
@@ -20,7 +21,7 @@ export class WorkItemViewPanel {
     this._panel = panel;
     this.workItem = workItem;
     this.api = AzureDevOpsApi.getInstance();
-    this.openAiService = OpenAiService.getInstance();
+    this.aiManager = AiServiceManager.getInstance();
 
     this._update().catch(error => {
       console.error('Error updating work item view:', error);
@@ -46,6 +47,9 @@ export class WorkItemViewPanel {
             break;
           case 'saveDescription':
             await this.saveDescription(message.description);
+            break;
+          case 'generatePlan':
+            await this.generatePlan();
             break;
           case 'openParent':
             if (this.parentWorkItem) {
@@ -118,24 +122,39 @@ export class WorkItemViewPanel {
 
   private async generateDescription(existingDescription?: string) {
     try {
-      // Check if OpenAI is configured
-      if (!this.openAiService.isConfigured()) {
-        const configured = await this.openAiService.promptForApiKey();
-        if (!configured) {
+      // Check if AI is enabled
+      if (!this.aiManager.isAiEnabled()) {
+        const enable = await vscode.window.showInformationMessage(
+          'AI suggestions are disabled. Would you like to enable them?',
+          'Enable',
+          'Cancel'
+        );
+
+        if (enable !== 'Enable') {
           return;
         }
+
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
+      }
+
+      // Check if a provider is available
+      const provider = this.aiManager.getConfiguredProvider();
+      if (!await this.aiManager.isProviderAvailable(provider)) {
+        await this.aiManager.selectAiProvider();
+        return;
       }
 
       // Show progress
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Generating description with AI...',
+          title: `Generating description with ${provider === 'copilot' ? 'GitHub Copilot' : 'Azure OpenAI'}...`,
           cancellable: false
         },
         async () => {
           // Generate description
-          const description = await this.openAiService.generateDescription(this.workItem, existingDescription);
+          const description = await this.aiManager.generateDescription(this.workItem, existingDescription);
 
           // Update work item with new description
           const updates = [
@@ -203,6 +222,69 @@ export class WorkItemViewPanel {
     }
   }
 
+  private async generatePlan() {
+    try {
+      // Check if AI is enabled
+      if (!this.aiManager.isAiEnabled()) {
+        const enable = await vscode.window.showInformationMessage(
+          'AI suggestions are disabled. Would you like to enable them?',
+          'Enable',
+          'Cancel'
+        );
+
+        if (enable !== 'Enable') {
+          return;
+        }
+
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
+      }
+
+      // Check if Copilot is the provider
+      const provider = this.aiManager.getConfiguredProvider();
+      if (provider !== 'copilot') {
+        const switchProvider = await vscode.window.showWarningMessage(
+          'Implementation plan generation is only available with GitHub Copilot. Would you like to switch to Copilot?',
+          'Switch to Copilot',
+          'Cancel'
+        );
+
+        if (switchProvider !== 'Switch to Copilot') {
+          return;
+        }
+
+        await this.aiManager.setAiProvider('copilot');
+      }
+
+      // Check if Copilot is available
+      if (!await this.aiManager.isProviderAvailable('copilot')) {
+        await this.aiManager.selectAiProvider();
+        return;
+      }
+
+      // Generate the plan
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Generating implementation plan with GitHub Copilot...',
+          cancellable: false
+        },
+        async () => {
+          const plan = await this.aiManager.generateImplementationPlan(this.workItem);
+
+          // Show the plan in a new panel
+          PlanViewPanel.createOrShow(this.workItem, plan);
+
+          vscode.window.showInformationMessage('Implementation plan generated successfully!');
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to generate plan: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
 
   public dispose() {
     WorkItemViewPanel.currentPanel = undefined;
@@ -220,7 +302,7 @@ export class WorkItemViewPanel {
   private async _update() {
     const webview = this._panel.webview;
     this._panel.title = `#${this.workItem.id} - ${this.workItem.fields['System.Title']}`;
-    
+
     // Fetch valid states for this work item type
     const workItemType = this.workItem.fields['System.WorkItemType'];
     try {
@@ -229,7 +311,7 @@ export class WorkItemViewPanel {
       console.error('Error fetching valid states:', error);
       this.validStates = ['Active', 'Resolved', 'Closed'];
     }
-    
+
     // Fetch parent work item if it exists
     const parentId = this.workItem.fields['System.Parent'];
     if (parentId) {
@@ -243,10 +325,10 @@ export class WorkItemViewPanel {
       this.parentWorkItem = undefined;
     }
 
-    this._panel.webview.html = this._getHtmlForWebview(webview);
+    this._panel.webview.html = await this._getHtmlForWebview(webview);
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview): string {
+  private async _getHtmlForWebview(webview: vscode.Webview): Promise<string> {
     const fields = this.workItem.fields;
     const workItemType = fields['System.WorkItemType'];
     const state = fields['System.State'];
@@ -254,7 +336,8 @@ export class WorkItemViewPanel {
     const id = fields['System.Id'];
     const description = fields['System.Description'] || '';
     const hasDescription = description.trim() !== '';
-    const isAiConfigured = this.openAiService.isConfigured();
+    const isAiEnabled = this.aiManager.isAiEnabled();
+    const isCopilotAvailable = await this.aiManager.isProviderAvailable('copilot');
     const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
     const createdDate = new Date(fields['System.CreatedDate']).toLocaleString();
     const changedDate = new Date(fields['System.ChangedDate']).toLocaleString();
@@ -426,6 +509,20 @@ export class WorkItemViewPanel {
         .ai-icon-btn:hover {
           background-color: var(--vscode-button-secondaryHoverBackground);
         }
+        .ai-plan-btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          margin: 5px 5px 5px 0;
+          cursor: pointer;
+          border-radius: 2px;
+          font-size: 13px;
+          font-weight: 500;
+        }
+        .ai-plan-btn:hover {
+          background: linear-gradient(135deg, #5568d3 0%, #653a8a 100%);
+        }
       </style>
     </head>
     <body>
@@ -441,7 +538,7 @@ export class WorkItemViewPanel {
       <div class="section">
         <div class="section-title">
           Description
-          ${isAiConfigured ? `<button class="ai-icon-btn" onclick="generateWithAI()" title="Generate description with AI">✨ AI</button>` : ''}
+          ${isAiEnabled ? `<button class="ai-icon-btn" onclick="generateWithAI()" title="Generate description with AI">✨ AI</button>` : ''}
         </div>
         <textarea id="descriptionText" class="description-textarea" placeholder="Enter work item description...">${this.stripHtml(description)}</textarea>
         <div style="margin-top: 10px;">
@@ -495,6 +592,7 @@ export class WorkItemViewPanel {
           <button onclick="changeState()">Update State</button>
           <button class="secondary" onclick="refresh()">Refresh</button>
           <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
+          ${isCopilotAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with Copilot">🎯 Plan</button>` : ''}
         </div>
       </div>
 
@@ -540,6 +638,10 @@ export class WorkItemViewPanel {
 
         function openParent() {
           vscode.postMessage({ command: 'openParent' });
+        }
+
+        function generatePlan() {
+          vscode.postMessage({ command: 'generatePlan' });
         }
 
       </script>

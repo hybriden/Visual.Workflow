@@ -20,6 +20,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "enabledApiProposals": [
+    "languageModels"
+  ],
   "categories": [
     "Other"
   ],
@@ -87,6 +90,26 @@
         "command": "azureDevOps.quickSwitchProject",
         "title": "Azure DevOps: Quick Switch Project",
         "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "azureDevOps.selectAiProvider",
+        "title": "Azure DevOps: Select AI Provider",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "azureDevOps.showAiStatus",
+        "title": "Azure DevOps: Show AI Status",
+        "icon": "$(info)"
+      },
+      {
+        "command": "azureDevOps.toggleAiSuggestions",
+        "title": "Azure DevOps: Toggle AI Suggestions",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "azureDevOps.generateDescription",
+        "title": "Azure DevOps: Generate Description with AI",
+        "icon": "$(sparkle)"
       }
     ],
     "keybindings": [
@@ -202,6 +225,21 @@
           "type": "string",
           "default": "2025-04-01-preview",
           "description": "Azure OpenAI API version (e.g., 2024-04-01-preview)"
+        },
+        "azureDevOps.aiProvider": {
+          "type": "string",
+          "enum": [
+            "copilot",
+            "azureOpenAI",
+            "none"
+          ],
+          "default": "copilot",
+          "description": "AI provider for generating work item descriptions (Copilot, Azure OpenAI, or none)"
+        },
+        "azureDevOps.enableAiSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AI-powered suggestions for work item descriptions"
         }
       }
     }
