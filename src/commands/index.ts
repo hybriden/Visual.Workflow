@@ -6,6 +6,7 @@ import { WorkItemViewPanel } from '../views/workItemView';
 import { SprintBoardProvider, MyWorkItemsProvider } from '../views/sprintPanel';
 import { registerFilterCommands } from './filterCommands';
 import { registerProjectSwitcher } from './projectSwitcher';
+import { registerAiCommands } from './aiCommands';
 
 /**
  * Register all extension commands
@@ -272,6 +273,8 @@ export function registerCommands(
   registerFilterCommands(context, sprintBoardProvider, myWorkItemsProvider);
   // Register project switcher
   registerProjectSwitcher(context, sprintBoardProvider, myWorkItemsProvider);
+  // Register AI commands
+  registerAiCommands(context, sprintBoardProvider, myWorkItemsProvider);
 }
 
 /**
