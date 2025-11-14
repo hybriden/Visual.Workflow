@@ -3,7 +3,7 @@ import { AiServiceManager } from '../ai/aiServiceManager';
 import { SprintBoardProvider, MyWorkItemsProvider } from '../views/sprintPanel';
 
 /**
- * Register AI-related commands (GitHub Copilot)
+ * Register AI-related commands (GitHub Copilot and Claude Code)
  */
 export function registerAiCommands(
   context: vscode.ExtensionContext,
@@ -12,10 +12,17 @@ export function registerAiCommands(
 ): void {
   const aiManager = AiServiceManager.getInstance();
 
-  // Show Copilot Status
+  // Select AI Provider
   context.subscriptions.push(
-    vscode.commands.registerCommand('azureDevOps.showCopilotStatus', async () => {
-      await aiManager.showCopilotStatus();
+    vscode.commands.registerCommand('azureDevOps.selectAiProvider', async () => {
+      await aiManager.selectAiProvider();
+    })
+  );
+
+  // Show AI Provider Status
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.showAiStatus', async () => {
+      await aiManager.showProviderStatus();
     })
   );
 
@@ -56,25 +63,28 @@ export function registerAiCommands(
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if Copilot is available
-      if (!await aiManager.isCopilotAvailable()) {
-        const install = await vscode.window.showInformationMessage(
-          'GitHub Copilot is not available. Would you like to install it?',
-          'Install',
+      // Check if current AI provider is available
+      if (!await aiManager.isCurrentProviderAvailable()) {
+        const select = await vscode.window.showInformationMessage(
+          'No AI provider is currently available. Would you like to select one?',
+          'Select Provider',
           'Cancel'
         );
 
-        if (install === 'Install') {
-          await aiManager.promptToInstallCopilot();
+        if (select === 'Select Provider') {
+          await aiManager.selectAiProvider();
         }
         return;
       }
 
       try {
+        const provider = aiManager.getConfiguredProvider();
+        const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
+
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Generating description with GitHub Copilot...',
+            title: `Generating description with ${providerName}...`,
             cancellable: false
           },
           async () => {

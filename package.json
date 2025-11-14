@@ -92,8 +92,13 @@
         "icon": "$(arrow-swap)"
       },
       {
-        "command": "azureDevOps.showCopilotStatus",
-        "title": "Azure DevOps: Show Copilot Status",
+        "command": "azureDevOps.selectAiProvider",
+        "title": "Azure DevOps: Select AI Provider",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "azureDevOps.showAiStatus",
+        "title": "Azure DevOps: Show AI Status",
         "icon": "$(info)"
       },
       {
@@ -103,7 +108,7 @@
       },
       {
         "command": "azureDevOps.generateDescription",
-        "title": "Azure DevOps: Generate Description with Copilot",
+        "title": "Azure DevOps: Generate Description with AI",
         "icon": "$(sparkle)"
       }
     ],
@@ -199,10 +204,21 @@
           "default": false,
           "description": "In Sprint Board, show only items assigned to me"
         },
+        "azureDevOps.aiProvider": {
+          "type": "string",
+          "enum": ["copilot", "claude", "none"],
+          "default": "copilot",
+          "enumDescriptions": [
+            "Use GitHub Copilot for AI-powered suggestions",
+            "Use Claude Code for AI-powered suggestions",
+            "Disable AI-powered features"
+          ],
+          "description": "AI provider for generating work item descriptions and implementation plans"
+        },
         "azureDevOps.enableAiSuggestions": {
           "type": "boolean",
           "default": true,
-          "description": "Enable GitHub Copilot AI-powered suggestions for work item descriptions"
+          "description": "Enable AI-powered suggestions for work item descriptions (GitHub Copilot or Claude Code)"
         }
       }
     }

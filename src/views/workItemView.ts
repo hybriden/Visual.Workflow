@@ -138,25 +138,28 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if Copilot is available
-      if (!await this.aiManager.isCopilotAvailable()) {
-        const install = await vscode.window.showInformationMessage(
-          'GitHub Copilot is not available. Would you like to install it?',
-          'Install',
+      // Check if current AI provider is available
+      if (!await this.aiManager.isCurrentProviderAvailable()) {
+        const select = await vscode.window.showInformationMessage(
+          'No AI provider is currently available. Would you like to select one?',
+          'Select Provider',
           'Cancel'
         );
 
-        if (install === 'Install') {
-          await this.aiManager.promptToInstallCopilot();
+        if (select === 'Select Provider') {
+          await this.aiManager.selectAiProvider();
         }
         return;
       }
+
+      const provider = this.aiManager.getConfiguredProvider();
+      const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
 
       // Show progress
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Generating description with GitHub Copilot...',
+          title: `Generating description with ${providerName}...`,
           cancellable: false
         },
         async () => {
@@ -247,25 +250,28 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if Copilot is available
-      if (!await this.aiManager.isCopilotAvailable()) {
-        const install = await vscode.window.showInformationMessage(
-          'GitHub Copilot is not available. Would you like to install it?',
-          'Install',
+      // Check if current AI provider is available
+      if (!await this.aiManager.isCurrentProviderAvailable()) {
+        const select = await vscode.window.showInformationMessage(
+          'No AI provider is currently available. Would you like to select one?',
+          'Select Provider',
           'Cancel'
         );
 
-        if (install === 'Install') {
-          await this.aiManager.promptToInstallCopilot();
+        if (select === 'Select Provider') {
+          await this.aiManager.selectAiProvider();
         }
         return;
       }
+
+      const provider = this.aiManager.getConfiguredProvider();
+      const providerName = provider === 'copilot' ? 'GitHub Copilot' : 'Claude Code';
 
       // Generate the plan
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Generating implementation plan with GitHub Copilot...',
+          title: `Generating implementation plan with ${providerName}...`,
           cancellable: false
         },
         async () => {
@@ -336,7 +342,7 @@ export class WorkItemViewPanel {
     const description = fields['System.Description'] || '';
     const hasDescription = description.trim() !== '';
     const isAiEnabled = this.aiManager.isAiEnabled();
-    const isCopilotAvailable = await this.aiManager.isCopilotAvailable();
+    const isAiProviderAvailable = await this.aiManager.isCurrentProviderAvailable();
     const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
     const createdDate = new Date(fields['System.CreatedDate']).toLocaleString();
     const changedDate = new Date(fields['System.ChangedDate']).toLocaleString();
@@ -591,7 +597,7 @@ export class WorkItemViewPanel {
           <button onclick="changeState()">Update State</button>
           <button class="secondary" onclick="refresh()">Refresh</button>
           <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-          ${isCopilotAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with Copilot">🎯 Plan</button>` : ''}
+          ${isAiProviderAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with AI">🎯 Plan</button>` : ''}
         </div>
       </div>
 
