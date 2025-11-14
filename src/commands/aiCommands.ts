@@ -3,7 +3,7 @@ import { AiServiceManager } from '../ai/aiServiceManager';
 import { SprintBoardProvider, MyWorkItemsProvider } from '../views/sprintPanel';
 
 /**
- * Register AI-related commands
+ * Register AI-related commands (GitHub Copilot)
  */
 export function registerAiCommands(
   context: vscode.ExtensionContext,
@@ -12,17 +12,10 @@ export function registerAiCommands(
 ): void {
   const aiManager = AiServiceManager.getInstance();
 
-  // Select AI Provider
+  // Show Copilot Status
   context.subscriptions.push(
-    vscode.commands.registerCommand('azureDevOps.selectAiProvider', async () => {
-      await aiManager.selectAiProvider();
-    })
-  );
-
-  // Show AI Provider Status
-  context.subscriptions.push(
-    vscode.commands.registerCommand('azureDevOps.showAiStatus', async () => {
-      await aiManager.showProviderStatus();
+    vscode.commands.registerCommand('azureDevOps.showCopilotStatus', async () => {
+      await aiManager.showCopilotStatus();
     })
   );
 
@@ -63,10 +56,17 @@ export function registerAiCommands(
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if provider is available
-      const provider = aiManager.getConfiguredProvider();
-      if (!await aiManager.isProviderAvailable(provider)) {
-        await aiManager.selectAiProvider();
+      // Check if Copilot is available
+      if (!await aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
+          'Cancel'
+        );
+
+        if (install === 'Install') {
+          await aiManager.promptToInstallCopilot();
+        }
         return;
       }
 
@@ -74,7 +74,7 @@ export function registerAiCommands(
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Generating description with AI...',
+            title: 'Generating description with GitHub Copilot...',
             cancellable: false
           },
           async () => {
@@ -91,12 +91,9 @@ export function registerAiCommands(
             );
 
             if (action === 'Accept') {
-              // Update the work item (this would be handled by the WorkItemViewPanel)
               vscode.window.showInformationMessage('Description generated successfully!');
-              // Emit an event or callback to update the work item
               vscode.commands.executeCommand('azureDevOps.updateWorkItemDescription', workItem.id, description);
             } else if (action === 'Edit') {
-              // Open an input box to edit the description
               const editedDescription = await vscode.window.showInputBox({
                 prompt: 'Edit the generated description',
                 value: description,

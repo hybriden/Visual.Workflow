@@ -92,13 +92,8 @@
         "icon": "$(arrow-swap)"
       },
       {
-        "command": "azureDevOps.selectAiProvider",
-        "title": "Azure DevOps: Select AI Provider",
-        "icon": "$(sparkle)"
-      },
-      {
-        "command": "azureDevOps.showAiStatus",
-        "title": "Azure DevOps: Show AI Status",
+        "command": "azureDevOps.showCopilotStatus",
+        "title": "Azure DevOps: Show Copilot Status",
         "icon": "$(info)"
       },
       {
@@ -108,7 +103,7 @@
       },
       {
         "command": "azureDevOps.generateDescription",
-        "title": "Azure DevOps: Generate Description with AI",
+        "title": "Azure DevOps: Generate Description with Copilot",
         "icon": "$(sparkle)"
       }
     ],
@@ -204,42 +199,10 @@
           "default": false,
           "description": "In Sprint Board, show only items assigned to me"
         },
-        "azureDevOps.azureOpenAiEndpoint": {
-          "type": "string",
-          "default": "",
-          "description": "Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/)",
-          "scope": "machine-overridable"
-        },
-        "azureDevOps.azureOpenAiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Azure OpenAI API key (optional - for AI-generated descriptions)",
-          "scope": "machine-overridable"
-        },
-        "azureDevOps.azureOpenAiDeployment": {
-          "type": "string",
-          "default": "gpt-4o-mini",
-          "description": "Azure OpenAI deployment name for description generation"
-        },
-        "azureDevOps.azureOpenAiApiVersion": {
-          "type": "string",
-          "default": "2025-04-01-preview",
-          "description": "Azure OpenAI API version (e.g., 2024-04-01-preview)"
-        },
-        "azureDevOps.aiProvider": {
-          "type": "string",
-          "enum": [
-            "copilot",
-            "azureOpenAI",
-            "none"
-          ],
-          "default": "copilot",
-          "description": "AI provider for generating work item descriptions (Copilot, Azure OpenAI, or none)"
-        },
         "azureDevOps.enableAiSuggestions": {
           "type": "boolean",
           "default": true,
-          "description": "Enable AI-powered suggestions for work item descriptions"
+          "description": "Enable GitHub Copilot AI-powered suggestions for work item descriptions"
         }
       }
     }
@@ -261,7 +224,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "axios": "^1.6.2",
-    "openai": "^6.8.1"
+    "axios": "^1.6.2"
   }
 }

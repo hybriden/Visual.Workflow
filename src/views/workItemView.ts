@@ -138,10 +138,17 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if a provider is available
-      const provider = this.aiManager.getConfiguredProvider();
-      if (!await this.aiManager.isProviderAvailable(provider)) {
-        await this.aiManager.selectAiProvider();
+      // Check if Copilot is available
+      if (!await this.aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
+          'Cancel'
+        );
+
+        if (install === 'Install') {
+          await this.aiManager.promptToInstallCopilot();
+        }
         return;
       }
 
@@ -149,7 +156,7 @@ export class WorkItemViewPanel {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Generating description with ${provider === 'copilot' ? 'GitHub Copilot' : 'Azure OpenAI'}...`,
+          title: 'Generating description with GitHub Copilot...',
           cancellable: false
         },
         async () => {
@@ -240,25 +247,17 @@ export class WorkItemViewPanel {
         await config.update('enableAiSuggestions', true, vscode.ConfigurationTarget.Global);
       }
 
-      // Check if Copilot is the provider
-      const provider = this.aiManager.getConfiguredProvider();
-      if (provider !== 'copilot') {
-        const switchProvider = await vscode.window.showWarningMessage(
-          'Implementation plan generation is only available with GitHub Copilot. Would you like to switch to Copilot?',
-          'Switch to Copilot',
+      // Check if Copilot is available
+      if (!await this.aiManager.isCopilotAvailable()) {
+        const install = await vscode.window.showInformationMessage(
+          'GitHub Copilot is not available. Would you like to install it?',
+          'Install',
           'Cancel'
         );
 
-        if (switchProvider !== 'Switch to Copilot') {
-          return;
+        if (install === 'Install') {
+          await this.aiManager.promptToInstallCopilot();
         }
-
-        await this.aiManager.setAiProvider('copilot');
-      }
-
-      // Check if Copilot is available
-      if (!await this.aiManager.isProviderAvailable('copilot')) {
-        await this.aiManager.selectAiProvider();
         return;
       }
 
@@ -337,7 +336,7 @@ export class WorkItemViewPanel {
     const description = fields['System.Description'] || '';
     const hasDescription = description.trim() !== '';
     const isAiEnabled = this.aiManager.isAiEnabled();
-    const isCopilotAvailable = await this.aiManager.isProviderAvailable('copilot');
+    const isCopilotAvailable = await this.aiManager.isCopilotAvailable();
     const assignedTo = fields['System.AssignedTo']?.displayName || 'Unassigned';
     const createdDate = new Date(fields['System.CreatedDate']).toLocaleString();
     const changedDate = new Date(fields['System.ChangedDate']).toLocaleString();
