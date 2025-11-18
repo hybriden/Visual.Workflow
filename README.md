@@ -302,6 +302,14 @@ None currently. Please report issues on the [GitHub repository](https://github.c
 
 ## Release Notes
 
+### 0.2.1
+
+**Bug Fixes:**
+- **Child Task Creation**: Fixed issue where child tasks would fail to be assigned to the creator
+- **Improved Error Handling**: Better error handling for child task creation - tasks are now created successfully even if individual field updates fail
+- **Better User Feedback**: Clear warning messages if specific operations (like assignment or parent linking) fail during task creation
+- **Reliability**: Refactored child task creation flow to ensure work item is fully created before applying updates
+
 ### 0.2.0
 
 **Major Feature Release:**
@@ -318,6 +326,7 @@ None currently. Please report issues on the [GitHub repository](https://github.c
 - **Create Work Item Button**: Quick access button in view headers
 - **Improved UI**: Actions moved to top of work item view for better accessibility
 - **Enhanced User Experience**: All operations provide progress feedback and confirmation dialogs
+- **Performance**: Implemented esbuild bundling reducing extension from 231 files to 9 files (405KB → 87KB)
 
 ### 0.1.2
 

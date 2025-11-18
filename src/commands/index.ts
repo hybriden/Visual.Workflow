@@ -498,7 +498,22 @@ export function registerCommands(
             cancellable: false
           },
           async () => {
-            // Get current user to auto-assign
+            // Create the task (without assignment initially)
+            const newTask = await api.createWorkItem(
+              'Task',
+              title,
+              description
+            );
+
+            // Set parent link first
+            try {
+              await api.addParentLink(newTask.id, parentId);
+            } catch (error) {
+              console.error('Failed to add parent link:', error);
+              vscode.window.showWarningMessage('Task created but failed to link to parent.');
+            }
+
+            // Get current user for auto-assignment
             let currentUserEmail: string | undefined;
             try {
               const currentUser = await api.getCurrentUserConnection();
@@ -507,31 +522,40 @@ export function registerCommands(
               console.error('Could not get current user for auto-assignment:', error);
             }
 
-            // Create the task
-            const newTask = await api.createWorkItem(
-              'Task',
-              title,
-              description,
-              currentUserEmail
-            );
+            // Prepare updates for iteration path and assignment
+            const updates: Array<{ op: string; path: string; value: any }> = [];
 
-            // Set parent link
-            await api.addParentLink(newTask.id, parentId);
-
-            // Copy iteration path from parent
+            // Add iteration path from parent
             const parentIteration = parentWorkItem.fields['System.IterationPath'];
             if (parentIteration) {
-              await api.updateWorkItem(newTask.id, [
-                {
-                  op: 'add',
-                  path: '/fields/System.IterationPath',
-                  value: parentIteration
-                }
-              ]);
+              updates.push({
+                op: 'add',
+                path: '/fields/System.IterationPath',
+                value: parentIteration
+              });
+            }
+
+            // Add assignment if we got the current user
+            if (currentUserEmail) {
+              updates.push({
+                op: 'add',
+                path: '/fields/System.AssignedTo',
+                value: currentUserEmail
+              });
+            }
+
+            // Apply field updates
+            if (updates.length > 0) {
+              try {
+                await api.updateWorkItem(newTask.id, updates);
+              } catch (error) {
+                console.error('Failed to update task fields:', error);
+                vscode.window.showWarningMessage('Task created but some fields could not be set.');
+              }
             }
 
             vscode.window.showInformationMessage(
-              `Task #${newTask.id} created under #${parentId} and assigned to you!`
+              `Task #${newTask.id} created under #${parentId}${currentUserEmail && updates.length > 0 ? ' and assigned to you' : ''}!`
             );
 
             // Refresh views
