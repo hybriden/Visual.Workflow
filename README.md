@@ -4,17 +4,38 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 
 ## Features
 
+### Core Features
 - **Setup Wizard**: Automatically fetches and displays your projects and teams - no manual typing required
 - **Sprint Board View**: View your current sprint in a dedicated panel organized by state
 - **My Work Items**: See all work items assigned to you in a separate view
 - **Quick Project Switching**: Switch between projects instantly with `Ctrl+Alt+P`
 - **Quick Open Work Items**: Search and open work items with keyboard shortcuts
-- **AI-Powered Features**: Generate descriptions and implementation plans using GitHub Copilot
-- **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Smart Filtering**: Hide completed/removed items by default (configurable)
 - **Auto-refresh**: Keep your work items up to date automatically
 - **Status Bar Integration**: See current project at a glance
+
+### Work Item Management
+- **Inline Actions**: Add/remove work items to/from sprint directly in work item view
+- **Set Estimates**: Quick estimate dialog to set remaining work hours
+- **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Parent Work Item Navigation**: Click on parent work items to view their details
+- **Create Child Tasks**: Right-click any work item to add tasks underneath
+- **Auto-Assignment**: New work items automatically assigned to you
+
+### Comments & Collaboration
+- **Add Comments**: Comment directly on work items from VS Code
+- **Delete Comments**: Remove comments with confirmation
+- **Real-time Updates**: Comments refresh automatically after changes
+
+### Context Menus
+- **Sprint Board**: Right-click work items to remove from sprint or change status
+- **My Work Items**: Right-click to add to sprint, change status, or create child tasks
+- **Quick Actions**: All common operations accessible via right-click
+
+### AI-Powered Features
+- **Generate Descriptions**: AI-powered generation using GitHub Copilot
+- **Implementation Plans**: Get detailed implementation plans with technical guidance
+- **Smart Context Awareness**: AI uses work item metadata for relevant suggestions
 
 ## Setup
 
@@ -101,12 +122,16 @@ When you click on a work item, you'll see:
 - Tags and remaining work hours
 - Full description with HTML rendering
 - Parent work item link (if applicable)
-- Quick actions:
+- Comments section with add/delete functionality
+- Quick actions (at the top):
   - **State dropdown**: Change work item state with valid transitions only
+  - **Add to Sprint**: Add work item to current sprint (if not already in it)
+  - **Remove from Sprint**: Remove work item from current sprint (if in it)
+  - **Set Estimate**: Quick dialog to set remaining work hours
   - **Refresh button**: Reload work item data
+  - **Open in Browser**: View work item in Azure DevOps web portal
   - **Generate Description button**: Create AI-powered descriptions (if AI is enabled)
   - **Generate Plan button**: Create implementation plans (if AI is enabled)
-  - **Open in Browser**: View work item in Azure DevOps web portal
 
 ### Switching Projects
 
@@ -118,11 +143,65 @@ Press `Ctrl+Alt+P` to quickly switch between projects:
 
 ### Changing Work Item Status
 
-Two methods:
+Three methods:
 1. **Via webview**: Open a work item and use the state dropdown
 2. **Via command**: Press `Ctrl+Alt+U` and select work item and new state
+3. **Via context menu**: Right-click any work item and select "Change Status"
 
 The state dropdown dynamically shows only valid state transitions for your Azure DevOps workflow configuration.
+
+### Context Menu Actions
+
+Right-click any work item in Sprint Board or My Work Items for quick actions:
+
+**Sprint Board:**
+- **Add Task**: Create a child task under the selected work item
+- **Remove from Sprint**: Move work item to backlog (with confirmation)
+- **Change Status**: Quick pick to select new state
+
+**My Work Items:**
+- **Add Task**: Create a child task under the selected work item
+- **Add to Current Sprint**: Move work item to active sprint
+- **Change Status**: Quick pick to select new state
+
+### Creating Work Items
+
+**From View Header:**
+1. Click the **➕** button in Sprint Board or My Work Items view header
+2. Select work item type
+3. Enter title and description
+4. Work item created and automatically assigned to you
+
+**Creating Child Tasks:**
+1. Right-click any work item (User Story, Bug, Feature, etc.)
+2. Select "Add Task"
+3. Enter task title and description
+4. Task created with:
+   - Parent relationship set automatically
+   - Same sprint/iteration as parent
+   - Assigned to you automatically
+
+### Managing Work Item Estimates
+
+1. Open a work item
+2. Click "⏱️ Set Estimate" button
+3. Enter hours in the dialog (supports decimals, e.g., 4.5)
+4. Press Enter or click "Set Estimate"
+5. Remaining work updated immediately
+
+### Working with Comments
+
+**Adding Comments:**
+1. Open a work item
+2. Scroll to Comments section
+3. Type your comment in the text area
+4. Click "Add Comment"
+
+**Deleting Comments:**
+1. Hover over a comment to see the delete button (🗑️)
+2. Click the delete button
+3. Confirm deletion
+4. Comment removed immediately
 
 ### Generating Descriptions with AI
 
@@ -222,6 +301,29 @@ This extension contributes the following settings:
 None currently. Please report issues on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
 
 ## Release Notes
+
+### 0.2.0
+
+**Major Feature Release:**
+- **Sprint Management**: Add/remove work items to/from sprint directly in work item view
+- **Estimate Work Items**: Quick dialog to set remaining work hours with modal interface
+- **Work Item Comments**: Full comment support - add, view, and delete comments
+- **Context Menus**: Right-click work items for quick actions:
+  - Add to Current Sprint (My Work Items view)
+  - Remove from Sprint (Sprint Board view)
+  - Change Status with quick pick
+  - Add Task (create child task under any work item)
+- **Create Child Tasks**: Right-click any work item to create tasks underneath with automatic parent linking
+- **Auto-Assignment**: New work items automatically assigned to creator
+- **Create Work Item Button**: Quick access button in view headers
+- **Improved UI**: Actions moved to top of work item view for better accessibility
+- **Enhanced User Experience**: All operations provide progress feedback and confirmation dialogs
+
+### 0.1.2
+
+**Bug Fixes and Improvements:**
+- Minor bug fixes and stability improvements
+- Performance optimizations
 
 ### 0.1.1
 

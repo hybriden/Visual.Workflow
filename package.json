@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -105,8 +105,74 @@
         "command": "azureDevOps.generateDescription",
         "title": "Azure DevOps: Generate Description with AI",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "azureDevOps.contextAddToSprint",
+        "title": "Add to Current Sprint",
+        "icon": "$(add)"
+      },
+      {
+        "command": "azureDevOps.contextRemoveFromSprint",
+        "title": "Remove from Sprint",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "azureDevOps.contextChangeStatus",
+        "title": "Change Status",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "azureDevOps.contextCreateChildTask",
+        "title": "Add Task",
+        "icon": "$(add)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "azureDevOps.createWorkItem",
+          "when": "view == azureDevOpsSprintBoard",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.createWorkItem",
+          "when": "view == azureDevOpsMyWorkItems",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "azureDevOps.contextCreateChildTask",
+          "when": "view == azureDevOpsSprintBoard && viewItem == workItem",
+          "group": "create@1"
+        },
+        {
+          "command": "azureDevOps.contextCreateChildTask",
+          "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
+          "group": "create@1"
+        },
+        {
+          "command": "azureDevOps.contextAddToSprint",
+          "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
+          "group": "sprint@1"
+        },
+        {
+          "command": "azureDevOps.contextRemoveFromSprint",
+          "when": "view == azureDevOpsSprintBoard && viewItem == workItem",
+          "group": "sprint@1"
+        },
+        {
+          "command": "azureDevOps.contextChangeStatus",
+          "when": "view == azureDevOpsSprintBoard && viewItem == workItem",
+          "group": "status@1"
+        },
+        {
+          "command": "azureDevOps.contextChangeStatus",
+          "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
+          "group": "status@1"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "azureDevOps.openSprintBoard",
@@ -208,9 +274,13 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && node ./esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node ./esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && node ./esbuild.js --production",
+    "check-types": "tsc --noEmit",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
@@ -220,7 +290,9 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "esbuild": "^0.27.0",
     "eslint": "^8.56.0",
+    "npm-run-all": "^4.1.5",
     "typescript": "^5.3.3"
   },
   "dependencies": {

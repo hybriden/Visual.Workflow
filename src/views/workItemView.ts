@@ -57,6 +57,15 @@ export class WorkItemViewPanel {
               WorkItemViewPanel.createOrShow(this.parentWorkItem);
             }
             break;
+          case 'addComment':
+            await this.addComment(message.commentText);
+            break;
+          case 'deleteComment':
+            await this.deleteComment(message.commentId);
+            break;
+          case 'setEstimate':
+            await this.setEstimate(message.hours);
+            break;
         }
       },
       null,
@@ -285,6 +294,110 @@ export class WorkItemViewPanel {
     }
   }
 
+  private async addComment(commentText: string) {
+    try {
+      if (!commentText || commentText.trim() === '') {
+        vscode.window.showWarningMessage('Please enter a comment.');
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Adding comment...',
+          cancellable: false
+        },
+        async () => {
+          await this.api.addWorkItemComment(this.workItem.id, commentText);
+
+          vscode.window.showInformationMessage('Comment added successfully!');
+
+          // Refresh the view to show the new comment
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to add comment: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async deleteComment(commentId: number) {
+    try {
+      // Confirm deletion
+      const confirm = await vscode.window.showWarningMessage(
+        'Are you sure you want to delete this comment?',
+        'Delete',
+        'Cancel'
+      );
+
+      if (confirm !== 'Delete') {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Deleting comment...',
+          cancellable: false
+        },
+        async () => {
+          await this.api.deleteWorkItemComment(this.workItem.id, commentId);
+
+          vscode.window.showInformationMessage('Comment deleted successfully!');
+
+          // Refresh the view to remove the deleted comment
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to delete comment: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async setEstimate(hours: string) {
+    try {
+      const hoursNum = parseFloat(hours);
+
+      if (isNaN(hoursNum) || hoursNum < 0) {
+        vscode.window.showWarningMessage('Please enter a valid number of hours (0 or greater).');
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Updating estimate...',
+          cancellable: false
+        },
+        async () => {
+          const updates = [
+            {
+              op: 'add',
+              path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
+              value: hoursNum
+            }
+          ];
+
+          await this.api.updateWorkItem(this.workItem.id, updates);
+
+          vscode.window.showInformationMessage(
+            `Work item #${this.workItem.id} estimate set to ${hoursNum}h`
+          );
+
+          // Refresh the view to show the updated estimate
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to set estimate: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
 
   public dispose() {
     WorkItemViewPanel.currentPanel = undefined;
@@ -353,7 +466,7 @@ export class WorkItemViewPanel {
     const iterationPath = fields['System.IterationPath'];
     const tags = fields['System.Tags'] || 'No tags';
     const remainingWork = fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0;
-    
+
     // Parent work item info
     const parentInfo = this.parentWorkItem ? `#${this.parentWorkItem.id} - ${this.parentWorkItem.fields['System.Title']}` : null;
     const parentType = this.parentWorkItem ? this.parentWorkItem.fields['System.WorkItemType'] : null;
@@ -499,22 +612,17 @@ export class WorkItemViewPanel {
         .description-textarea:focus {
           outline: 1px solid var(--vscode-focusBorder);
         }
-        .section-title {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .ai-icon-btn {
+        .ai-generate-btn {
           background-color: var(--vscode-button-secondaryBackground);
           color: var(--vscode-button-secondaryForeground);
           border: none;
-          padding: 4px 8px;
-          font-size: 11px;
+          padding: 8px 16px;
+          font-size: 13px;
           cursor: pointer;
           border-radius: 2px;
-          margin-left: 10px;
+          margin: 0;
         }
-        .ai-icon-btn:hover {
+        .ai-generate-btn:hover {
           background-color: var(--vscode-button-secondaryHoverBackground);
         }
         .ai-plan-btn {
@@ -572,9 +680,75 @@ export class WorkItemViewPanel {
         .comment-text a:hover {
           text-decoration: underline;
         }
+        .delete-comment-btn {
+          background-color: transparent;
+          border: 1px solid var(--vscode-button-secondaryBackground);
+          color: var(--vscode-errorForeground);
+          padding: 2px 6px;
+          cursor: pointer;
+          border-radius: 2px;
+          font-size: 12px;
+          margin: 0;
+        }
+        .delete-comment-btn:hover {
+          background-color: var(--vscode-button-secondaryBackground);
+        }
+        .estimate-dialog {
+          display: none;
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background-color: var(--vscode-editor-background);
+          border: 1px solid var(--vscode-panel-border);
+          padding: 20px;
+          border-radius: 4px;
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+          z-index: 1000;
+          min-width: 300px;
+        }
+        .estimate-dialog.show {
+          display: block;
+        }
+        .estimate-overlay {
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: rgba(0, 0, 0, 0.5);
+          z-index: 999;
+        }
+        .estimate-overlay.show {
+          display: block;
+        }
+        .estimate-input {
+          width: 100%;
+          padding: 8px;
+          margin: 10px 0;
+          background-color: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          border: 1px solid var(--vscode-input-border);
+          border-radius: 2px;
+        }
+        .estimate-input:focus {
+          outline: 1px solid var(--vscode-focusBorder);
+        }
       </style>
     </head>
     <body>
+      <div class="estimate-overlay" id="estimateOverlay" onclick="closeEstimateDialog()"></div>
+      <div class="estimate-dialog" id="estimateDialog">
+        <h3 style="margin-top: 0;">Set Remaining Work Estimate</h3>
+        <p style="color: var(--vscode-descriptionForeground); margin: 10px 0;">Enter the estimated remaining work in hours:</p>
+        <input type="number" id="estimateInput" class="estimate-input" placeholder="Hours (e.g., 8)" min="0" step="0.5" value="${remainingWork || 0}" />
+        <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="secondary" onclick="closeEstimateDialog()">Cancel</button>
+          <button onclick="submitEstimate()">Set Estimate</button>
+        </div>
+      </div>
+
       <div class="header">
         <div class="work-item-id">Work Item #${id}</div>
         <h1 class="work-item-title">${title}</h1>
@@ -584,14 +758,27 @@ export class WorkItemViewPanel {
         </div>
       </div>
 
-      <div class="section">
-        <div class="section-title">
-          Description
-          ${isAiEnabled ? `<button class="ai-icon-btn" onclick="generateWithAI()" title="Generate description with AI">✨ AI</button>` : ''}
+      <div class="actions">
+        <div class="section-title">Actions</div>
+        <div style="margin-top: 15px;">
+          <select id="stateSelect">
+            <option value="">-- Change State --</option>
+            ${stateOptions}
+          </select>
+          <button onclick="changeState()">Update State</button>
+          <button class="secondary" onclick="showEstimateDialog()">⏱️ Set Estimate</button>
+          <button class="secondary" onclick="refresh()">Refresh</button>
+          <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
+          ${isAiProviderAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with AI">🎯 Plan</button>` : ''}
         </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Description</div>
         <textarea id="descriptionText" class="description-textarea" placeholder="Enter work item description...">${this.stripHtml(description)}</textarea>
-        <div style="margin-top: 10px;">
+        <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
           <button onclick="saveDescription()">Save Description</button>
+          ${isAiEnabled ? `<button class="ai-generate-btn" onclick="generateWithAI()" title="Generate description with AI">✨ Generate with AI</button>` : ''}
         </div>
       </div>
 
@@ -631,35 +818,34 @@ export class WorkItemViewPanel {
         </div>
       </div>
 
-      ${this.comments.length > 0 ? `
       <div class="section">
-        <div class="section-title">Comments (${this.comments.length})</div>
+        <div class="section-title">Comments${this.comments.length > 0 ? ` (${this.comments.length})` : ''}</div>
+
+        <!-- Add Comment Form -->
+        <div style="margin-bottom: 20px;">
+          <textarea id="commentInput" class="description-textarea" placeholder="Add a comment..." style="min-height: 80px;"></textarea>
+          <div style="margin-top: 10px;">
+            <button onclick="addComment()">Add Comment</button>
+          </div>
+        </div>
+
+        <!-- Existing Comments -->
+        ${this.comments.length > 0 ? `
         <div class="comments-container">
           ${this.comments.map(comment => `
             <div class="comment">
               <div class="comment-header">
                 <span class="comment-author">${this.escapeHtml(comment.createdBy?.displayName || 'Unknown')}</span>
-                <span class="comment-date">${new Date(comment.createdDate).toLocaleString()}</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span class="comment-date">${new Date(comment.createdDate).toLocaleString()}</span>
+                  <button class="delete-comment-btn" onclick="deleteComment(${comment.id})" title="Delete comment">🗑️</button>
+                </div>
               </div>
               <div class="comment-text">${this.sanitizeCommentHtml(comment.text)}</div>
             </div>
           `).join('')}
         </div>
-      </div>
-      ` : ''}
-
-      <div class="actions">
-        <div class="section-title">Actions</div>
-        <div style="margin-top: 15px;">
-          <select id="stateSelect">
-            <option value="">-- Change State --</option>
-            ${stateOptions}
-          </select>
-          <button onclick="changeState()">Update State</button>
-          <button class="secondary" onclick="refresh()">Refresh</button>
-          <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-          ${isAiProviderAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with AI">🎯 Plan</button>` : ''}
-        </div>
+        ` : '<p style="color: var(--vscode-descriptionForeground); margin-top: 10px;">No comments yet. Be the first to add one!</p>'}
       </div>
 
       <script>
@@ -709,6 +895,65 @@ export class WorkItemViewPanel {
         function generatePlan() {
           vscode.postMessage({ command: 'generatePlan' });
         }
+
+        function addComment() {
+          const textarea = document.getElementById('commentInput');
+          const commentText = textarea.value.trim();
+          if (commentText) {
+            vscode.postMessage({
+              command: 'addComment',
+              commentText: commentText
+            });
+            // Clear the textarea
+            textarea.value = '';
+          }
+        }
+
+        function deleteComment(commentId) {
+          vscode.postMessage({
+            command: 'deleteComment',
+            commentId: commentId
+          });
+        }
+
+        function showEstimateDialog() {
+          document.getElementById('estimateDialog').classList.add('show');
+          document.getElementById('estimateOverlay').classList.add('show');
+          // Focus on the input
+          setTimeout(() => {
+            document.getElementById('estimateInput').focus();
+            document.getElementById('estimateInput').select();
+          }, 100);
+        }
+
+        function closeEstimateDialog() {
+          document.getElementById('estimateDialog').classList.remove('show');
+          document.getElementById('estimateOverlay').classList.remove('show');
+        }
+
+        function submitEstimate() {
+          const input = document.getElementById('estimateInput');
+          const hours = input.value;
+          if (hours !== '') {
+            vscode.postMessage({
+              command: 'setEstimate',
+              hours: hours
+            });
+            closeEstimateDialog();
+          }
+        }
+
+        // Allow Enter key to submit estimate
+        document.addEventListener('DOMContentLoaded', function() {
+          const estimateInput = document.getElementById('estimateInput');
+          if (estimateInput) {
+            estimateInput.addEventListener('keypress', function(e) {
+              if (e.key === 'Enter') {
+                submitEstimate();
+              }
+            });
+          }
+        });
 
       </script>
     </body>

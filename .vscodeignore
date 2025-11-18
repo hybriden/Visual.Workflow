@@ -16,14 +16,5 @@ vsc-extension-quickstart.md
 **/.gitattributes
 **/.editorconfig
 **/.npmignore
-node_modules/**/.bin/**
-node_modules/**/test/**
-node_modules/**/tests/**
-node_modules/**/*.md
-node_modules/**/*.markdown
-node_modules/**/LICENSE*
-node_modules/**/CHANGELOG*
-node_modules/**/.npmignore
-node_modules/**/.travis.yml
-node_modules/**/.github/**
-node_modules/**/tsconfig.json
+esbuild.js
+node_modules/**

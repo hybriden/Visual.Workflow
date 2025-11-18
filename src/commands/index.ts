@@ -131,14 +131,25 @@ export function registerCommands(
             cancellable: false
           },
           async () => {
+            // Get current user to auto-assign
+            let currentUserEmail: string | undefined;
+            try {
+              const currentUser = await api.getCurrentUserConnection();
+              currentUserEmail = currentUser.providerDisplayName || currentUser.displayName;
+            } catch (error) {
+              console.error('Could not get current user for auto-assignment:', error);
+              // Continue without auto-assignment if user lookup fails
+            }
+
             const newWorkItem = await api.createWorkItem(
               workItemType,
               title,
-              description
+              description,
+              currentUserEmail
             );
 
             vscode.window.showInformationMessage(
-              `Work item #${newWorkItem.id} created successfully!`
+              `Work item #${newWorkItem.id} created and assigned to you!`
             );
 
             // Refresh views
@@ -269,6 +280,276 @@ export function registerCommands(
       WorkItemViewPanel.createOrShow(workItem);
     })
   );
+
+  // Context Menu: Add to Current Sprint
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.contextAddToSprint', async (treeItem: any) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const workItem = treeItem.workItem;
+        const currentSprint = await api.getCurrentIteration();
+
+        if (!currentSprint) {
+          vscode.window.showErrorMessage('No current sprint found.');
+          return;
+        }
+
+        // Check if already in current sprint
+        if (workItem.fields['System.IterationPath'] === currentSprint.path) {
+          vscode.window.showInformationMessage(
+            `Work item #${workItem.id} is already in "${currentSprint.name}"`
+          );
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Adding work item #${workItem.id} to ${currentSprint.name}...`,
+            cancellable: false
+          },
+          async () => {
+            const updates = [
+              {
+                op: 'add',
+                path: '/fields/System.IterationPath',
+                value: currentSprint.path
+              }
+            ];
+
+            await api.updateWorkItem(workItem.id, updates);
+
+            vscode.window.showInformationMessage(
+              `Work item #${workItem.id} added to sprint "${currentSprint.name}"`
+            );
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to add work item to sprint: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    })
+  );
+
+  // Context Menu: Remove from Sprint
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.contextRemoveFromSprint', async (treeItem: any) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const workItem = treeItem.workItem;
+        const currentSprint = await api.getCurrentIteration();
+
+        if (!currentSprint) {
+          vscode.window.showErrorMessage('No current sprint found.');
+          return;
+        }
+
+        // Confirm the action
+        const confirm = await vscode.window.showWarningMessage(
+          `Remove work item #${workItem.id} from sprint?`,
+          'Remove',
+          'Cancel'
+        );
+
+        if (confirm !== 'Remove') {
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Removing work item #${workItem.id} from sprint...`,
+            cancellable: false
+          },
+          async () => {
+            const projectName = workItem.fields['System.TeamProject'];
+
+            const updates = [
+              {
+                op: 'add',
+                path: '/fields/System.IterationPath',
+                value: projectName
+              }
+            ];
+
+            await api.updateWorkItem(workItem.id, updates);
+
+            vscode.window.showInformationMessage(
+              `Work item #${workItem.id} removed from sprint`
+            );
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to remove work item from sprint: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    })
+  );
+
+  // Context Menu: Change Status
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.contextChangeStatus', async (treeItem: any) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const workItem = treeItem.workItem;
+        const workItemType = workItem.fields['System.WorkItemType'];
+        const currentState = workItem.fields['System.State'];
+
+        // Get valid states for this work item type
+        const validStates = await api.getWorkItemStates(workItemType);
+        const availableStates = validStates.filter(state => state !== currentState);
+
+        if (availableStates.length === 0) {
+          vscode.window.showInformationMessage('No other states available for this work item.');
+          return;
+        }
+
+        // Show quick pick for state selection
+        const newState = await vscode.window.showQuickPick(availableStates, {
+          placeHolder: `Select new state for work item #${workItem.id} (Current: ${currentState})`
+        });
+
+        if (!newState) {
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Changing work item #${workItem.id} state to "${newState}"...`,
+            cancellable: false
+          },
+          async () => {
+            await api.changeWorkItemState(workItem.id, newState);
+
+            vscode.window.showInformationMessage(
+              `Work item #${workItem.id} state changed to "${newState}"`
+            );
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to change work item status: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    })
+  );
+
+  // Context Menu: Create Child Task
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.contextCreateChildTask', async (treeItem: any) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const parentWorkItem = treeItem.workItem;
+        const parentId = parentWorkItem.id;
+        const parentTitle = parentWorkItem.fields['System.Title'];
+
+        // Get task title
+        const title = await vscode.window.showInputBox({
+          prompt: `Enter task title (parent: #${parentId} - ${parentTitle})`,
+          placeHolder: 'Task title...',
+          validateInput: (value) => {
+            return value.trim() === '' ? 'Title cannot be empty' : null;
+          }
+        });
+
+        if (!title) {
+          return;
+        }
+
+        // Get description (optional)
+        const description = await vscode.window.showInputBox({
+          prompt: 'Enter task description (optional)',
+          placeHolder: 'Description...',
+        });
+
+        // Create task
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Creating task under #${parentId}...`,
+            cancellable: false
+          },
+          async () => {
+            // Get current user to auto-assign
+            let currentUserEmail: string | undefined;
+            try {
+              const currentUser = await api.getCurrentUserConnection();
+              currentUserEmail = currentUser.providerDisplayName || currentUser.displayName;
+            } catch (error) {
+              console.error('Could not get current user for auto-assignment:', error);
+            }
+
+            // Create the task
+            const newTask = await api.createWorkItem(
+              'Task',
+              title,
+              description,
+              currentUserEmail
+            );
+
+            // Set parent link
+            await api.addParentLink(newTask.id, parentId);
+
+            // Copy iteration path from parent
+            const parentIteration = parentWorkItem.fields['System.IterationPath'];
+            if (parentIteration) {
+              await api.updateWorkItem(newTask.id, [
+                {
+                  op: 'add',
+                  path: '/fields/System.IterationPath',
+                  value: parentIteration
+                }
+              ]);
+            }
+
+            vscode.window.showInformationMessage(
+              `Task #${newTask.id} created under #${parentId} and assigned to you!`
+            );
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+
+            // Refresh the updated work item to show the new child
+            const updatedWorkItem = await api.getWorkItem(newTask.id);
+            WorkItemViewPanel.createOrShow(updatedWorkItem);
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to create task: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    })
+  );
+
   // Register filter commands
   registerFilterCommands(context, sprintBoardProvider, myWorkItemsProvider);
   // Register project switcher

@@ -20,6 +20,7 @@ export interface WorkItemFields {
   'System.Description'?: string;
   'System.AreaPath': string;
   'System.IterationPath': string;
+  'System.TeamProject': string;
   'System.Tags'?: string;
   'Microsoft.VSTS.Scheduling.RemainingWork'?: number;
   'Microsoft.VSTS.Scheduling.OriginalEstimate'?: number;

@@ -306,12 +306,56 @@ export class AzureDevOpsApi {
     try {
       const url = `${this.getProjectUrl()}/_apis/wit/workItems/${id}/comments?api-version=7.1-preview.3`;
       const response = await this.axiosInstance.get(url);
-      return response.data.comments || [];
+
+      // Try different response formats
+      if (response.data.comments) {
+        return response.data.comments;
+      } else if (response.data.value) {
+        return response.data.value;
+      } else if (Array.isArray(response.data)) {
+        return response.data;
+      }
+
+      console.log('Unexpected comments response format:', response.data);
+      return [];
     } catch (error: any) {
-      console.error(`Error fetching comments for work item ${id}:`, error);
+      console.error(`Error fetching comments for work item ${id}:`, error.response?.status, error.response?.data);
       // Return empty array if comments API fails (some orgs may not have it enabled)
       // This is a preview API and may not be available in all Azure DevOps instances
       return [];
+    }
+  }
+
+  /**
+   * Add a comment to a work item
+   */
+  public async addWorkItemComment(id: number, commentText: string): Promise<any> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/wit/workItems/${id}/comments?api-version=7.1-preview.3`;
+      const response = await this.axiosInstance.post(url, {
+        text: commentText
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error(`Error adding comment to work item ${id}:`, error.response?.status, error.response?.data);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a comment from a work item
+   */
+  public async deleteWorkItemComment(workItemId: number, commentId: number): Promise<void> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/wit/workItems/${workItemId}/comments/${commentId}?api-version=7.1-preview.3`;
+      await this.axiosInstance.delete(url);
+    } catch (error: any) {
+      console.error(`Error deleting comment ${commentId} from work item ${workItemId}:`, error.response?.status, error.response?.data);
+      throw error;
     }
   }
 
@@ -424,6 +468,68 @@ export class AzureDevOpsApi {
     }
   }
 
+
+  /**
+   * Add parent link to a work item
+   */
+  public async addParentLink(childId: number, parentId: number): Promise<void> {
+    try {
+      const url = `${this.getBaseUrl()}/_apis/wit/workitems/${childId}?api-version=7.0`;
+
+      const updates = [
+        {
+          op: 'add',
+          path: '/relations/-',
+          value: {
+            rel: 'System.LinkTypes.Hierarchy-Reverse',
+            url: `${this.getBaseUrl()}/_apis/wit/workitems/${parentId}`,
+            attributes: {
+              comment: 'Parent link'
+            }
+          }
+        }
+      ];
+
+      await this.axiosInstance.patch(url, updates, {
+        headers: {
+          'Content-Type': 'application/json-patch+json'
+        }
+      });
+    } catch (error) {
+      console.error(`Error adding parent link from ${childId} to ${parentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current authenticated user
+   */
+  public async getCurrentUser(): Promise<any> {
+    try {
+      const org = this.auth.getOrganization();
+      const url = `https://vssps.dev.azure.com/${org}/_apis/profile/profiles/me?api-version=7.0`;
+      const response = await this.axiosInstance.get(url);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current user's connection data (includes display name and email)
+   */
+  public async getCurrentUserConnection(): Promise<any> {
+    try {
+      const org = this.auth.getOrganization();
+      const url = `https://dev.azure.com/${org}/_apis/connectionData?api-version=7.0`;
+      const response = await this.axiosInstance.get(url);
+      return response.data.authenticatedUser;
+    } catch (error) {
+      console.error('Error fetching current user connection:', error);
+      throw error;
+    }
+  }
 
   /**
    * Get all teams in the project (helper for debugging)

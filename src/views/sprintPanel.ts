@@ -126,24 +126,29 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   private workItems: WorkItem[] = [];
   private api: AzureDevOpsApi;
+  private hasLoaded: boolean = false;
 
   constructor() {
     this.api = AzureDevOpsApi.getInstance();
   }
 
   refresh(): void {
+    this.hasLoaded = false;
     this._onDidChangeTreeData.fire();
   }
 
   async loadWorkItems(): Promise<void> {
     try {
       this.workItems = await this.api.getSprintWorkItems();
-      this.refresh();
+      this.hasLoaded = true;
+      this._onDidChangeTreeData.fire();
     } catch (error) {
       vscode.window.showErrorMessage(
         `Failed to load sprint work items: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
       this.workItems = [];
+      this.hasLoaded = true;
+      this._onDidChangeTreeData.fire();
     }
   }
 
@@ -154,8 +159,16 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
   async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
     if (!element) {
       // Root level - show state categories
-      if (this.workItems.length === 0) {
+      if (!this.hasLoaded) {
         await this.loadWorkItems();
+      }
+
+      // If no work items after loading, show a message
+      if (this.workItems.length === 0) {
+        const emptyItem = new vscode.TreeItem('No work items to display', vscode.TreeItemCollapsibleState.None);
+        emptyItem.iconPath = new vscode.ThemeIcon('info');
+        emptyItem.contextValue = 'empty';
+        return [emptyItem];
       }
 
       const categories = this.groupByStateCategory(this.workItems);
@@ -272,24 +285,29 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
 
   private workItems: WorkItem[] = [];
   private api: AzureDevOpsApi;
+  private hasLoaded: boolean = false;
 
   constructor() {
     this.api = AzureDevOpsApi.getInstance();
   }
 
   refresh(): void {
+    this.hasLoaded = false;
     this._onDidChangeTreeData.fire();
   }
 
   async loadWorkItems(): Promise<void> {
     try {
       this.workItems = await this.api.getMyWorkItems();
-      this.refresh();
+      this.hasLoaded = true;
+      this._onDidChangeTreeData.fire();
     } catch (error) {
       vscode.window.showErrorMessage(
         `Failed to load my work items: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
       this.workItems = [];
+      this.hasLoaded = true;
+      this._onDidChangeTreeData.fire();
     }
   }
 
@@ -299,8 +317,16 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
 
   async getChildren(element?: WorkItemTreeItem): Promise<WorkItemTreeItem[]> {
     if (!element) {
-      if (this.workItems.length === 0) {
+      if (!this.hasLoaded) {
         await this.loadWorkItems();
+      }
+
+      // If no work items after loading, show a message
+      if (this.workItems.length === 0) {
+        const emptyItem = new vscode.TreeItem('No work items assigned to you', vscode.TreeItemCollapsibleState.None) as any;
+        emptyItem.iconPath = new vscode.ThemeIcon('info');
+        emptyItem.contextValue = 'empty';
+        return [emptyItem];
       }
 
       return this.buildHierarchy(this.workItems);
