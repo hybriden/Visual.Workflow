@@ -286,6 +286,45 @@ export class AzureDevOpsApi {
   }
 
   /**
+   * Get ALL work items in the project (for Project Manager view)
+   */
+  public async getAllProjectWorkItems(): Promise<WorkItem[]> {
+    try {
+      // Get filter settings
+      const config = vscode.workspace.getConfiguration('azureDevOps');
+      const hideCompleted = config.get<boolean>('hideCompletedItems', true);
+      const hideRemoved = config.get<boolean>('hideRemovedItems', true);
+
+      // Build state filter
+      let stateFilter = '';
+      if (hideCompleted) {
+        stateFilter += `AND [System.State] <> 'Done'
+        AND [System.State] <> 'Closed'
+        AND [System.State] <> 'Resolved' `;
+      }
+      if (hideRemoved) {
+        stateFilter += `AND [System.State] <> 'Removed'
+        AND [System.State] <> 'Cut' `;
+      }
+
+      // Get all work items in the project (no filters for sprint or assignee)
+      const wiql = `
+        SELECT [System.Id]
+        FROM WorkItems
+        WHERE [System.TeamProject] = '${this.auth.getProject()}'
+        ${stateFilter}
+        ORDER BY [System.ChangedDate] DESC
+      `;
+
+      const ids = await this.queryWorkItems(wiql);
+      return await this.getWorkItems(ids);
+    } catch (error) {
+      console.error('Error fetching all project work items:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get a single work item by ID
    */
   public async getWorkItem(id: number): Promise<WorkItem> {

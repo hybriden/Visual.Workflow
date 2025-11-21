@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.2.1",
+  "version": "0.3.2",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -125,19 +125,44 @@
         "command": "azureDevOps.contextCreateChildTask",
         "title": "Add Task",
         "icon": "$(add)"
+      },
+      {
+        "command": "azureDevOps.refreshProjectManager",
+        "title": "Azure DevOps: Refresh Project Manager",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.changeProjectManagerGrouping",
+        "title": "Azure DevOps: Change Project Manager Grouping",
+        "icon": "$(group-by-ref-type)"
       }
     ],
     "menus": {
       "view/title": [
         {
+          "command": "azureDevOps.quickSwitchProject",
+          "when": "view == azureDevOpsSprintBoard",
+          "group": "navigation@1"
+        },
+        {
           "command": "azureDevOps.createWorkItem",
           "when": "view == azureDevOpsSprintBoard",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "azureDevOps.createWorkItem",
           "when": "view == azureDevOpsMyWorkItems",
           "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.changeProjectManagerGrouping",
+          "when": "view == azureDevOpsProjectManager",
+          "group": "navigation@1"
+        },
+        {
+          "command": "azureDevOps.refreshProjectManager",
+          "when": "view == azureDevOpsProjectManager",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -169,6 +194,16 @@
         {
           "command": "azureDevOps.contextChangeStatus",
           "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
+          "group": "status@1"
+        },
+        {
+          "command": "azureDevOps.contextCreateChildTask",
+          "when": "view == azureDevOpsProjectManager && viewItem == workItem",
+          "group": "create@1"
+        },
+        {
+          "command": "azureDevOps.contextChangeStatus",
+          "when": "view == azureDevOpsProjectManager && viewItem == workItem",
           "group": "status@1"
         }
       ]
@@ -213,6 +248,11 @@
         {
           "id": "azureDevOpsMyWorkItems",
           "name": "My Work Items"
+        },
+        {
+          "id": "azureDevOpsProjectManager",
+          "name": "Project Manager",
+          "when": "config.azureDevOps.enableProjectManager"
         }
       ]
     },
@@ -228,7 +268,8 @@
           "type": "string",
           "default": "",
           "description": "Personal Access Token for authentication",
-          "scope": "machine-overridable"
+          "scope": "machine-overridable",
+          "format": "password"
         },
         "azureDevOps.project": {
           "type": "string",
@@ -269,6 +310,37 @@
           "type": "boolean",
           "default": true,
           "description": "Enable AI-powered suggestions for work item descriptions using GitHub Copilot"
+        },
+        "azureDevOps.enableCopilotAgent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable GitHub Copilot coding agent integration to create issues from implementation plans (uses automatic GitHub authentication)"
+        },
+        "azureDevOps.githubDefaultOrg": {
+          "type": "string",
+          "default": "",
+          "description": "Default GitHub organization for Copilot agent integration"
+        },
+        "azureDevOps.enableProjectManager": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Project Manager view showing all work items in the project"
+        },
+        "azureDevOps.showOverEstimateAlerts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show visual alerts for work items that exceed their original estimates"
+        },
+        "azureDevOps.overEstimateThreshold": {
+          "type": "number",
+          "default": 0,
+          "description": "Percentage threshold for over-estimate alerts (0 = any over-estimate, 10 = 10% or more)"
+        },
+        "azureDevOps.projectManagerGroupBy": {
+          "type": "string",
+          "enum": ["state", "type", "iteration", "assignedTo"],
+          "default": "state",
+          "description": "How to group work items in Project Manager view"
         }
       }
     }

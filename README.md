@@ -36,6 +36,11 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **Generate Descriptions**: AI-powered generation using GitHub Copilot
 - **Implementation Plans**: Get detailed implementation plans with technical guidance
 - **Smart Context Awareness**: AI uses work item metadata for relevant suggestions
+- **GitHub Copilot Agent Integration**: Create GitHub issues from implementation plans and automatically assign GitHub Copilot coding agent to work on them
+  - Automatic GitHub authentication (no token setup needed)
+  - Select organization and repository from dropdowns
+  - One-click issue creation with plan
+  - Copilot agent automatically assigned to implement the plan
 
 ## Setup
 
@@ -242,6 +247,38 @@ When viewing a work item:
 - **Potential Challenges**: Things to watch out for and gotchas
 - **Estimated Complexity**: Simple, Medium, or Complex rating
 
+### Using GitHub Copilot Agent Integration
+
+Turn implementation plans into action by assigning them to GitHub Copilot's coding agent:
+
+**Setup:**
+1. Open Settings (Ctrl+,)
+2. Search for "Azure DevOps: Enable Copilot Agent"
+3. Enable the feature
+
+**Usage:**
+1. Generate an implementation plan for a work item (click "Plan" button)
+2. **(Optional)** Click "✏️ Edit Plan" to customize the AI-generated plan
+3. In the plan view, you'll see the "🤖 GitHub Copilot Agent Integration" section
+4. VS Code will automatically prompt you to sign in to GitHub (first time only)
+5. Select your GitHub organization from the dropdown
+6. Select the target repository
+7. Click "🚀 Create Issue & Assign to Copilot"
+
+**What happens:**
+- A GitHub issue is created in the selected repository with the full implementation plan
+- The issue is labeled with `copilot-agent` and `implementation-plan`
+- GitHub Copilot's coding agent is automatically assigned via comment
+- The agent will autonomously work on implementing the plan
+- You get a direct link to track the issue and agent's progress
+
+**Benefits:**
+- Seamless workflow from planning to implementation
+- Automatic GitHub authentication (no token setup required)
+- One-click deployment to GitHub Copilot agent
+- Track agent progress directly in GitHub
+- Agent can open PRs, make code changes, and iterate autonomously
+
 ### Filtering Work Items
 
 Use the Command Palette (`F1`):
@@ -279,8 +316,12 @@ This extension contributes the following settings:
 ### AI Settings
 
 - `azureDevOps.enableAiSuggestions`: Enable AI-powered suggestions for work item descriptions using GitHub Copilot (default: `true`)
+- `azureDevOps.enableCopilotAgent`: Enable GitHub Copilot coding agent integration to create issues from implementation plans (default: `false`)
+- `azureDevOps.githubDefaultOrg`: Default GitHub organization for Copilot agent integration (optional)
 
-**Note**: Project and team settings are managed via the Setup Wizard and Quick Switch commands, not manually in settings.
+**Note**:
+- Project and team settings are managed via the Setup Wizard and Quick Switch commands, not manually in settings.
+- GitHub authentication for Copilot agent is automatic via VS Code - no manual token setup required.
 
 ## Requirements
 
@@ -301,6 +342,51 @@ This extension contributes the following settings:
 None currently. Please report issues on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
 
 ## Release Notes
+
+### 0.3.2
+
+**Bug Fixes:**
+- **Fixed Project Manager 404 Errors**: Corrected WIQL query syntax to properly load all project work items
+- **Added Hierarchical Structure in Project Manager**: Work items now display in parent-child tree structure for better organization
+  - Parent items are collapsible to show/hide child tasks
+  - Orphaned items (parent not in current view) display parent ID for reference
+  - Three-level tree hierarchy: Category → Parent → Children
+- **Improved GitHub Copilot Agent Assignment**: Fixed Copilot agent assignment using correct GraphQL API approach
+  - Now uses `suggestedActors` with `capabilities: [CAN_BE_ASSIGNED]` filter
+  - Uses `replaceActorsForAssignable` mutation instead of deprecated methods
+  - Added REST API fallback for additional reliability
+  - Enhanced authentication with proper `write:org` scope
+- **Better Error Handling**: Added detection for archived repositories and clearer error messages for GitHub integration
+- **Enhanced Debugging**: Added detailed console logging for troubleshooting Copilot agent assignment
+
+### 0.3.1
+
+**Enhancements:**
+- **Edit AI-Generated Plans**: Added ability to edit and customize AI-generated implementation plans
+  - Click "Edit Plan" button to enter edit mode
+  - Edit the plan in a large, resizable textarea
+  - Save changes or cancel to discard edits
+  - Editor automatically closes after saving
+  - Edited plans are used for all subsequent actions (copy, GitHub issue creation)
+- **Project Switcher in Sprint Board**: Added quick project switcher button in Sprint Board title bar for easier project navigation
+- **Security Improvement**: Azure DevOps PAT now displayed as password (masked) in settings UI
+
+### 0.3.0
+
+**Major Feature: GitHub Copilot Agent Integration**
+- **Create GitHub Issues from Plans**: Turn implementation plans into GitHub issues with one click
+- **Automatic Copilot Agent Assignment**: GitHub Copilot coding agent is automatically assigned to implement the plan
+- **Automatic GitHub Authentication**: No manual token setup - uses VS Code's built-in GitHub OAuth
+- **Organization & Repository Selection**: Easy dropdowns to select target organization and repository
+- **Seamless Workflow**: From work item → AI plan → GitHub issue → Copilot agent implementation
+- **Smart Issue Creation**: Issues are created with proper labels (`copilot-agent`, `implementation-plan`) and formatted with the full plan
+- **Real-time Feedback**: Progress indicators, error messages, and success notifications with direct links to created issues
+
+**Technical Improvements:**
+- New GitHub API client with automatic authentication
+- Enhanced plan view with Copilot integration section
+- OAuth-based authentication flow (more secure than PAT)
+- Support for personal and organization repositories
 
 ### 0.2.1
 

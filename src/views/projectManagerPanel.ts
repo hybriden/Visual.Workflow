@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import { AzureDevOpsApi } from '../azureDevOps/api';
-import { WorkItem, WorkItemTypeIcons, StateColors } from '../models/workItem';
+import { WorkItem } from '../models/workItem';
 import { EstimateChecker } from '../utils/estimateChecker';
 
 /**
- * Tree item for work items in the sprint board
+ * Tree item for work items with over-estimate support
  */
-export class WorkItemTreeItem extends vscode.TreeItem {
+export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
   public children: WorkItem[] = [];
 
   constructor(
@@ -29,7 +29,7 @@ export class WorkItemTreeItem extends vscode.TreeItem {
     const isOver = EstimateChecker.isOverEstimate(workItem);
     const showAlerts = this.shouldShowAlerts();
 
-    // Build description with over-estimate warning if applicable
+    // Build description
     let description = '';
     if (showParentInDescription && parentId) {
       description = `#${id} - ${state} (Parent: #${parentId})`;
@@ -39,26 +39,23 @@ export class WorkItemTreeItem extends vscode.TreeItem {
 
     if (isOver && showAlerts) {
       const percentage = EstimateChecker.getOverEstimatePercentage(workItem);
-      description += ` ⚠️ +${percentage.toFixed(0)}%`;
-    }
-
-    this.description = description;
-
-    // Set icon based on work item type and over-estimate status
-    const icon = WorkItemTypeIcons[workItemType] || WorkItemTypeIcons['Default'];
-    if (isOver && showAlerts) {
-      const percentage = EstimateChecker.getOverEstimatePercentage(workItem);
       const severity = EstimateChecker.getSeverityLevel(percentage);
+      description += ` ⚠️ +${percentage.toFixed(0)}%`;
+
+      // Use warning color for icon
       this.iconPath = new vscode.ThemeIcon(
         this.getThemeIcon(workItemType),
         new vscode.ThemeColor(EstimateChecker.getSeverityColor(severity))
       );
     } else {
+      // Regular icon
       this.iconPath = new vscode.ThemeIcon(
         this.getThemeIcon(workItemType),
         new vscode.ThemeColor(this.getIconColor(state))
       );
     }
+
+    this.description = description;
 
     // Command to view work item details
     this.command = {
@@ -134,26 +131,25 @@ export class WorkItemTreeItem extends vscode.TreeItem {
 }
 
 /**
- * Tree item for state categories (To Do, In Progress, Done)
+ * Category tree item for grouping
  */
-export class StateCategoryTreeItem extends vscode.TreeItem {
+class CategoryTreeItem extends vscode.TreeItem {
   constructor(
     public readonly label: string,
     public readonly workItems: WorkItem[],
     public readonly collapsibleState: vscode.TreeItemCollapsibleState
   ) {
     super(label, collapsibleState);
-
-    this.contextValue = 'stateCategory';
-    this.description = `${workItems.length} items`;
+    this.contextValue = 'category';
+    this.description = `${workItems.length} item${workItems.length !== 1 ? 's' : ''}`;
     this.iconPath = new vscode.ThemeIcon('folder');
   }
 }
 
 /**
- * Tree data provider for Sprint Board
+ * Project Manager view provider
  */
-export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> =
     new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> =
@@ -174,12 +170,12 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   async loadWorkItems(): Promise<void> {
     try {
-      this.workItems = await this.api.getSprintWorkItems();
+      this.workItems = await this.api.getAllProjectWorkItems();
       this.hasLoaded = true;
       this._onDidChangeTreeData.fire();
     } catch (error) {
       vscode.window.showErrorMessage(
-        `Failed to load sprint work items: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to load project work items: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
       this.workItems = [];
       this.hasLoaded = true;
@@ -193,12 +189,11 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
     if (!element) {
-      // Root level - show state categories
+      // Root level - show grouped categories
       if (!this.hasLoaded) {
         await this.loadWorkItems();
       }
 
-      // If no work items after loading, show a message
       if (this.workItems.length === 0) {
         const emptyItem = new vscode.TreeItem('No work items to display', vscode.TreeItemCollapsibleState.None);
         emptyItem.iconPath = new vscode.ThemeIcon('info');
@@ -206,176 +201,131 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
         return [emptyItem];
       }
 
-      const categories = this.groupByStateCategory(this.workItems);
-      const items: vscode.TreeItem[] = [];
+      // Get grouping preference
+      const config = vscode.workspace.getConfiguration('azureDevOps');
+      const groupBy = config.get<string>('projectManagerGroupBy', 'state');
 
-      for (const [category, workItems] of Object.entries(categories)) {
-        if (workItems.length > 0) {
-          items.push(
-            new StateCategoryTreeItem(
-              category,
-              workItems,
-              vscode.TreeItemCollapsibleState.Expanded
-            )
-          );
-        }
-      }
-
-      return items;
-    } else if (element instanceof StateCategoryTreeItem) {
-      // Show work items in this category with parent-child hierarchy
+      return this.getGroupedItems(groupBy);
+    } else if (element instanceof CategoryTreeItem) {
+      // Show work items in category with parent-child hierarchy
       return this.buildHierarchy(element.workItems);
-    } else if (element instanceof WorkItemTreeItem) {
+    } else if (element instanceof ProjectManagerWorkItemTreeItem) {
       // Show children of this work item
       return element.children.map(
-        child => new WorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
+        child => new ProjectManagerWorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
       );
     }
 
     return [];
   }
 
-  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
-    // Create a map of work item ID to work item
-    const itemMap = new Map<number, WorkItem>();
-    workItems.forEach(wi => itemMap.set(wi.fields['System.Id'], wi));
-
-    // Separate parents and children
-    const parents: WorkItem[] = [];
-    const childrenByParent = new Map<number, WorkItem[]>();
-
-    workItems.forEach(wi => {
-      const parentId = wi.fields['System.Parent'];
-      
-      if (parentId && itemMap.has(parentId)) {
-        // This item has a parent in the current list
-        if (!childrenByParent.has(parentId)) {
-          childrenByParent.set(parentId, []);
-        }
-        childrenByParent.get(parentId)!.push(wi);
-      } else {
-        // This is either a parent or an orphan (parent not in current state)
-        parents.push(wi);
-      }
-    });
-
-    // Build tree items
-    return parents.map(parent => {
-      const children = childrenByParent.get(parent.fields['System.Id']) || [];
-      const hasChildren = children.length > 0;
-      
-      const treeItem = new WorkItemTreeItem(
-        parent,
-        hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-        !!parent.fields['System.Parent'] // Show parent in description if this item has a parent not in view
-      );
-      
-      treeItem.children = children;
-      return treeItem;
-    });
+  private getGroupedItems(groupBy: string): vscode.TreeItem[] {
+    switch (groupBy) {
+      case 'type':
+        return this.groupByType();
+      case 'iteration':
+        return this.groupByIteration();
+      case 'assignedTo':
+        return this.groupByAssignedTo();
+      case 'state':
+      default:
+        return this.groupByState();
+    }
   }
 
-  private groupByStateCategory(workItems: WorkItem[]): { [key: string]: WorkItem[] } {
-    const categories: { [key: string]: WorkItem[] } = {
-      'To Do': [],
-      'In Progress': [],
-      'Done': [],
-      'Removed': []
-    };
+  private groupByState(): vscode.TreeItem[] {
+    const groups: { [key: string]: WorkItem[] } = {};
 
-    for (const wi of workItems) {
+    this.workItems.forEach(wi => {
       const state = wi.fields['System.State'];
+      if (!groups[state]) {
+        groups[state] = [];
+      }
+      groups[state].push(wi);
+    });
 
-      // Map states to categories
-      if (['New', 'To Do', 'Proposed'].includes(state)) {
-        categories['To Do'].push(wi);
-      } else if (['Active', 'In Progress', 'Committed'].includes(state)) {
-        categories['In Progress'].push(wi);
-      } else if (['Done', 'Closed', 'Resolved'].includes(state)) {
-        categories['Done'].push(wi);
-      } else if (['Removed', 'Cut'].includes(state)) {
-        categories['Removed'].push(wi);
-      } else {
-        // Default to In Progress for unknown states
-        categories['In Progress'].push(wi);
+    const items: vscode.TreeItem[] = [];
+    for (const [state, workItems] of Object.entries(groups)) {
+      if (workItems.length > 0) {
+        items.push(
+          new CategoryTreeItem(state, workItems, vscode.TreeItemCollapsibleState.Collapsed)
+        );
       }
     }
 
-    return categories;
+    return items;
   }
 
-  getWorkItems(): WorkItem[] {
-    return this.workItems;
-  }
-}
+  private groupByType(): vscode.TreeItem[] {
+    const groups: { [key: string]: WorkItem[] } = {};
 
-/**
- * Tree data provider for My Work Items
- */
-export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTreeItem> {
-  private _onDidChangeTreeData: vscode.EventEmitter<WorkItemTreeItem | undefined | null | void> =
-    new vscode.EventEmitter<WorkItemTreeItem | undefined | null | void>();
-  readonly onDidChangeTreeData: vscode.Event<WorkItemTreeItem | undefined | null | void> =
-    this._onDidChangeTreeData.event;
-
-  private workItems: WorkItem[] = [];
-  private api: AzureDevOpsApi;
-  private hasLoaded: boolean = false;
-
-  constructor() {
-    this.api = AzureDevOpsApi.getInstance();
-  }
-
-  refresh(): void {
-    this.hasLoaded = false;
-    this._onDidChangeTreeData.fire();
-  }
-
-  async loadWorkItems(): Promise<void> {
-    try {
-      this.workItems = await this.api.getMyWorkItems();
-      this.hasLoaded = true;
-      this._onDidChangeTreeData.fire();
-    } catch (error) {
-      vscode.window.showErrorMessage(
-        `Failed to load my work items: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-      this.workItems = [];
-      this.hasLoaded = true;
-      this._onDidChangeTreeData.fire();
-    }
-  }
-
-  getTreeItem(element: WorkItemTreeItem): vscode.TreeItem {
-    return element;
-  }
-
-  async getChildren(element?: WorkItemTreeItem): Promise<WorkItemTreeItem[]> {
-    if (!element) {
-      if (!this.hasLoaded) {
-        await this.loadWorkItems();
+    this.workItems.forEach(wi => {
+      const type = wi.fields['System.WorkItemType'];
+      if (!groups[type]) {
+        groups[type] = [];
       }
+      groups[type].push(wi);
+    });
 
-      // If no work items after loading, show a message
-      if (this.workItems.length === 0) {
-        const emptyItem = new vscode.TreeItem('No work items assigned to you', vscode.TreeItemCollapsibleState.None) as any;
-        emptyItem.iconPath = new vscode.ThemeIcon('info');
-        emptyItem.contextValue = 'empty';
-        return [emptyItem];
+    const items: vscode.TreeItem[] = [];
+    for (const [type, workItems] of Object.entries(groups)) {
+      if (workItems.length > 0) {
+        items.push(
+          new CategoryTreeItem(type, workItems, vscode.TreeItemCollapsibleState.Collapsed)
+        );
       }
-
-      return this.buildHierarchy(this.workItems);
-    } else if (element instanceof WorkItemTreeItem) {
-      // Show children of this work item
-      return element.children.map(
-        child => new WorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
-      );
     }
 
-    return [];
+    return items;
   }
 
-  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
+  private groupByIteration(): vscode.TreeItem[] {
+    const groups: { [key: string]: WorkItem[] } = {};
+
+    this.workItems.forEach(wi => {
+      const iteration = wi.fields['System.IterationPath'];
+      if (!groups[iteration]) {
+        groups[iteration] = [];
+      }
+      groups[iteration].push(wi);
+    });
+
+    const items: vscode.TreeItem[] = [];
+    for (const [iteration, workItems] of Object.entries(groups)) {
+      if (workItems.length > 0) {
+        items.push(
+          new CategoryTreeItem(iteration, workItems, vscode.TreeItemCollapsibleState.Collapsed)
+        );
+      }
+    }
+
+    return items;
+  }
+
+  private groupByAssignedTo(): vscode.TreeItem[] {
+    const groups: { [key: string]: WorkItem[] } = {};
+
+    this.workItems.forEach(wi => {
+      const assignedTo = wi.fields['System.AssignedTo']?.displayName || 'Unassigned';
+      if (!groups[assignedTo]) {
+        groups[assignedTo] = [];
+      }
+      groups[assignedTo].push(wi);
+    });
+
+    const items: vscode.TreeItem[] = [];
+    for (const [assignedTo, workItems] of Object.entries(groups)) {
+      if (workItems.length > 0) {
+        items.push(
+          new CategoryTreeItem(assignedTo, workItems, vscode.TreeItemCollapsibleState.Collapsed)
+        );
+      }
+    }
+
+    return items;
+  }
+
+  private buildHierarchy(workItems: WorkItem[]): ProjectManagerWorkItemTreeItem[] {
     // Create a map of work item ID to work item
     const itemMap = new Map<number, WorkItem>();
     workItems.forEach(wi => itemMap.set(wi.fields['System.Id'], wi));
@@ -386,7 +336,7 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
 
     workItems.forEach(wi => {
       const parentId = wi.fields['System.Parent'];
-      
+
       if (parentId && itemMap.has(parentId)) {
         // This item has a parent in the current list
         if (!childrenByParent.has(parentId)) {
@@ -394,7 +344,7 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
         }
         childrenByParent.get(parentId)!.push(wi);
       } else {
-        // This is either a parent or an orphan (parent not in current state)
+        // This is either a parent or an orphan (parent not in current group)
         parents.push(wi);
       }
     });
@@ -403,13 +353,13 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
     return parents.map(parent => {
       const children = childrenByParent.get(parent.fields['System.Id']) || [];
       const hasChildren = children.length > 0;
-      
-      const treeItem = new WorkItemTreeItem(
+
+      const treeItem = new ProjectManagerWorkItemTreeItem(
         parent,
         hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
         !!parent.fields['System.Parent'] // Show parent in description if this item has a parent not in view
       );
-      
+
       treeItem.children = children;
       return treeItem;
     });

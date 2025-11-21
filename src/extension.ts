@@ -2,12 +2,14 @@ import * as vscode from 'vscode';
 import { AzureDevOpsAuth } from './azureDevOps/auth';
 import { AzureDevOpsApi } from './azureDevOps/api';
 import { SprintBoardProvider, MyWorkItemsProvider } from './views/sprintPanel';
+import { ProjectManagerProvider } from './views/projectManagerPanel';
 import { ProjectPicker } from './azureDevOps/projectPicker';
 import { registerCommands } from './commands';
 import { trackRecentProject } from './commands/projectSwitcher';
 
 let statusBarItem: vscode.StatusBarItem;
 let refreshTimer: NodeJS.Timeout | undefined;
+let projectManagerProvider: ProjectManagerProvider | undefined;
 
 /**
  * Extension activation
@@ -35,8 +37,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(sprintBoardView, myWorkItemsView);
 
+  // Conditionally create Project Manager provider if enabled
+  const config = vscode.workspace.getConfiguration('azureDevOps');
+  const enableProjectManager = config.get<boolean>('enableProjectManager', false);
+
+  if (enableProjectManager) {
+    projectManagerProvider = new ProjectManagerProvider();
+    const projectManagerView = vscode.window.createTreeView('azureDevOpsProjectManager', {
+      treeDataProvider: projectManagerProvider,
+      showCollapseAll: true
+    });
+    context.subscriptions.push(projectManagerView);
+  }
+
   // Register all commands
-  registerCommands(context, sprintBoardProvider, myWorkItemsProvider);
+  registerCommands(context, sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
 
   // Create status bar item
   statusBarItem = vscode.window.createStatusBarItem(
@@ -63,10 +78,10 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage('Connected to Azure DevOps!');
 
           // Load initial data
-          await loadInitialData(sprintBoardProvider, myWorkItemsProvider);
+          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
 
           // Setup auto-refresh
-          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider);
+          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
         } else {
           vscode.window.showWarningMessage(
             'Could not connect to Azure DevOps. Please check your configuration.'
@@ -83,8 +98,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (configured) {
       // Reload after configuration
-      await loadInitialData(sprintBoardProvider, myWorkItemsProvider);
-      setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider);
+      await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+      setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
       statusBarItem.show();
     }
   }
@@ -99,10 +114,10 @@ export async function activate(context: vscode.ExtensionContext) {
           statusBarItem.show();
 
           // Reload data
-          await loadInitialData(sprintBoardProvider, myWorkItemsProvider);
+          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
 
           // Restart auto-refresh
-          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider);
+          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
         } else {
           statusBarItem.hide();
           if (refreshTimer) {
@@ -125,6 +140,41 @@ export async function activate(context: vscode.ExtensionContext) {
       await myWorkItemsProvider.loadWorkItems();
     })
   );
+
+  // Project Manager commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.refreshProjectManager', async () => {
+      if (projectManagerProvider) {
+        await projectManagerProvider.loadWorkItems();
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.changeProjectManagerGrouping', async () => {
+      if (!projectManagerProvider) {
+        vscode.window.showWarningMessage('Project Manager is not enabled. Enable it in settings.');
+        return;
+      }
+
+      const options = [
+        { label: 'State', value: 'state' },
+        { label: 'Work Item Type', value: 'type' },
+        { label: 'Iteration', value: 'iteration' },
+        { label: 'Assigned To', value: 'assignedTo' }
+      ];
+
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Select grouping option'
+      });
+
+      if (selected) {
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        await config.update('projectManagerGroupBy', selected.value, vscode.ConfigurationTarget.Global);
+        projectManagerProvider.refresh();
+      }
+    })
+  );
 }
 
 /**
@@ -132,7 +182,8 @@ export async function activate(context: vscode.ExtensionContext) {
  */
 async function loadInitialData(
   sprintBoardProvider: SprintBoardProvider,
-  myWorkItemsProvider: MyWorkItemsProvider
+  myWorkItemsProvider: MyWorkItemsProvider,
+  projectManagerProvider?: ProjectManagerProvider
 ): Promise<void> {
   await vscode.window.withProgress(
     {
@@ -142,10 +193,16 @@ async function loadInitialData(
     },
     async () => {
       try {
-        await Promise.all([
+        const promises = [
           sprintBoardProvider.loadWorkItems(),
           myWorkItemsProvider.loadWorkItems()
-        ]);
+        ];
+
+        if (projectManagerProvider) {
+          promises.push(projectManagerProvider.loadWorkItems());
+        }
+
+        await Promise.all(promises);
       } catch (error) {
         vscode.window.showErrorMessage(
           `Failed to load work items: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -160,7 +217,8 @@ async function loadInitialData(
  */
 function setupAutoRefresh(
   sprintBoardProvider: SprintBoardProvider,
-  myWorkItemsProvider: MyWorkItemsProvider
+  myWorkItemsProvider: MyWorkItemsProvider,
+  projectManagerProvider?: ProjectManagerProvider
 ): void {
   // Clear existing timer
   if (refreshTimer) {
@@ -176,10 +234,16 @@ function setupAutoRefresh(
       console.log('Auto-refreshing Azure DevOps work items...');
 
       try {
-        await Promise.all([
+        const promises = [
           sprintBoardProvider.loadWorkItems(),
           myWorkItemsProvider.loadWorkItems()
-        ]);
+        ];
+
+        if (projectManagerProvider) {
+          promises.push(projectManagerProvider.loadWorkItems());
+        }
+
+        await Promise.all(promises);
       } catch (error) {
         console.error('Auto-refresh failed:', error);
       }

@@ -4,6 +4,7 @@ import { AzureDevOpsAuth } from '../azureDevOps/auth';
 import { WorkItem } from '../models/workItem';
 import { WorkItemViewPanel } from '../views/workItemView';
 import { SprintBoardProvider, MyWorkItemsProvider } from '../views/sprintPanel';
+import { ProjectManagerProvider } from '../views/projectManagerPanel';
 import { registerFilterCommands } from './filterCommands';
 import { registerProjectSwitcher } from './projectSwitcher';
 import { registerAiCommands } from './aiCommands';
@@ -14,7 +15,8 @@ import { registerAiCommands } from './aiCommands';
 export function registerCommands(
   context: vscode.ExtensionContext,
   sprintBoardProvider: SprintBoardProvider,
-  myWorkItemsProvider: MyWorkItemsProvider
+  myWorkItemsProvider: MyWorkItemsProvider,
+  projectManagerProvider?: ProjectManagerProvider
 ): void {
   const api = AzureDevOpsApi.getInstance();
   const auth = AzureDevOpsAuth.getInstance();

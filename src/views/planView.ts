@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { WorkItem } from '../models/workItem';
+import { GitHubApi } from '../github/githubApi';
 
 /**
  * Webview panel for displaying implementation plans
@@ -29,6 +30,20 @@ export class PlanViewPanel {
             break;
           case 'openWorkItem':
             vscode.commands.executeCommand('azureDevOps.viewWorkItemDetails', this.workItem);
+            break;
+          case 'loadOrganizations':
+            await this.handleLoadOrganizations();
+            break;
+          case 'loadRepositories':
+            await this.handleLoadRepositories(message.organization);
+            break;
+          case 'createIssueWithCopilot':
+            await this.handleCreateIssueWithCopilot(message.organization, message.repository);
+            break;
+          case 'savePlan':
+            this.plan = message.plan;
+            this._update();
+            vscode.window.showInformationMessage('Plan updated successfully!');
             break;
         }
       },
@@ -78,10 +93,129 @@ export class PlanViewPanel {
     }
   }
 
+  /**
+   * Handle loading GitHub organizations
+   */
+  private async handleLoadOrganizations(): Promise<void> {
+    try {
+      const githubApi = GitHubApi.getInstance();
+
+      const isConfigured = await githubApi.isConfigured();
+      if (!isConfigured) {
+        this._panel.webview.postMessage({
+          command: 'organizationsLoaded',
+          organizations: [],
+          error: 'GitHub authentication failed. Please sign in to GitHub.'
+        });
+        return;
+      }
+
+      const organizations = await githubApi.getOrganizations();
+      const user = await githubApi.getAuthenticatedUser();
+
+      // Add user's personal repos as an option
+      const allOrgs = [
+        { login: user.login, id: 0, description: 'Personal repositories' },
+        ...organizations
+      ];
+
+      this._panel.webview.postMessage({
+        command: 'organizationsLoaded',
+        organizations: allOrgs
+      });
+    } catch (error) {
+      this._panel.webview.postMessage({
+        command: 'organizationsLoaded',
+        organizations: [],
+        error: error instanceof Error ? error.message : 'Failed to load organizations'
+      });
+    }
+  }
+
+  /**
+   * Handle loading repositories for a selected organization
+   */
+  private async handleLoadRepositories(organization: string): Promise<void> {
+    try {
+      const githubApi = GitHubApi.getInstance();
+      const repositories = await githubApi.getRepositories(organization);
+
+      this._panel.webview.postMessage({
+        command: 'repositoriesLoaded',
+        repositories
+      });
+    } catch (error) {
+      this._panel.webview.postMessage({
+        command: 'repositoriesLoaded',
+        repositories: [],
+        error: error instanceof Error ? error.message : 'Failed to load repositories'
+      });
+    }
+  }
+
+  /**
+   * Handle creating GitHub issue with Copilot agent
+   */
+  private async handleCreateIssueWithCopilot(organization: string, repository: string): Promise<void> {
+    try {
+      const githubApi = GitHubApi.getInstance();
+      const workItemTitle = this.workItem.fields['System.Title'];
+      const workItemId = this.workItem.id;
+
+      // Show progress
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Creating GitHub issue with Copilot agent...',
+          cancellable: false
+        },
+        async () => {
+          const issue = await githubApi.createIssueWithCopilotAgent(
+            organization,
+            repository,
+            workItemTitle,
+            workItemId,
+            this.plan
+          );
+
+          vscode.window.showInformationMessage(
+            `GitHub issue #${issue.number} created successfully! Copilot agent will start working on it.`,
+            'Open Issue'
+          ).then(action => {
+            if (action === 'Open Issue') {
+              vscode.env.openExternal(vscode.Uri.parse(issue.html_url));
+            }
+          });
+
+          this._panel.webview.postMessage({
+            command: 'issueCreated',
+            issue
+          });
+        }
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create issue';
+      vscode.window.showErrorMessage(errorMessage);
+
+      this._panel.webview.postMessage({
+        command: 'issueCreated',
+        error: errorMessage
+      });
+    }
+  }
+
   private _update() {
     const webview = this._panel.webview;
     this._panel.title = `Plan: #${this.workItem.id} - ${this.workItem.fields['System.Title']}`;
     this._panel.webview.html = this._getHtmlForWebview(webview);
+  }
+
+  /**
+   * Check if Copilot agent integration is enabled
+   */
+  private isCopilotAgentEnabled(): boolean {
+    const config = vscode.workspace.getConfiguration('azureDevOps');
+    return config.get<boolean>('enableCopilotAgent', false);
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
@@ -248,6 +382,92 @@ export class PlanViewPanel {
           font-weight: 600;
           margin-bottom: 15px;
         }
+        .copilot-section {
+          margin-top: 30px;
+          padding: 20px;
+          border: 1px solid var(--vscode-panel-border);
+          border-radius: 6px;
+          background-color: var(--vscode-editor-background);
+        }
+        .copilot-controls {
+          display: flex;
+          flex-direction: column;
+          gap: 15px;
+        }
+        .form-group {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .form-group label {
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--vscode-foreground);
+        }
+        .form-group select {
+          padding: 8px 12px;
+          border: 1px solid var(--vscode-input-border);
+          background-color: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          border-radius: 3px;
+          font-size: 13px;
+          font-family: var(--vscode-font-family);
+          cursor: pointer;
+        }
+        .form-group select:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .form-group select:focus {
+          outline: 1px solid var(--vscode-focusBorder);
+        }
+        .copilot-button {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          cursor: pointer;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 600;
+          margin-top: 10px;
+          transition: opacity 0.2s;
+        }
+        .copilot-button:hover:not(:disabled) {
+          opacity: 0.9;
+        }
+        .copilot-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .error-message {
+          margin-top: 10px;
+          padding: 10px;
+          background-color: var(--vscode-inputValidation-errorBackground);
+          border: 1px solid var(--vscode-inputValidation-errorBorder);
+          border-radius: 3px;
+          color: var(--vscode-errorForeground);
+          font-size: 12px;
+        }
+        .plan-edit {
+          width: 100%;
+        }
+        .plan-textarea {
+          width: 100%;
+          min-height: 500px;
+          padding: 15px;
+          border: 1px solid var(--vscode-input-border);
+          background-color: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          font-family: var(--vscode-editor-font-family);
+          font-size: 13px;
+          line-height: 1.6;
+          border-radius: 4px;
+          resize: vertical;
+        }
+        .plan-textarea:focus {
+          outline: 1px solid var(--vscode-focusBorder);
+        }
       </style>
     </head>
     <body>
@@ -265,18 +485,94 @@ export class PlanViewPanel {
       </div>
 
       <div class="plan-container">
-        <div class="plan-content">
+        <div id="planView" class="plan-content">
           ${planHtml}
+        </div>
+        <div id="planEdit" class="plan-edit" style="display: none;">
+          <textarea id="planTextarea" class="plan-textarea">${this.escapeHtml(this.plan)}</textarea>
         </div>
       </div>
 
       <div class="actions">
-        <button onclick="copyPlan()">📋 Copy Plan</button>
-        <button class="secondary" onclick="openWorkItem()">🔗 Open Work Item</button>
+        <div id="viewActions" style="display: flex; gap: 10px;">
+          <button onclick="editPlan()">✏️ Edit Plan</button>
+          <button onclick="copyPlan()">📋 Copy Plan</button>
+          <button class="secondary" onclick="openWorkItem()">🔗 Open Work Item</button>
+        </div>
+        <div id="editActions" style="display: none; gap: 10px;">
+          <button onclick="savePlan()">💾 Save Changes</button>
+          <button class="secondary" onclick="cancelEdit()">❌ Cancel</button>
+        </div>
+      </div>
+
+      <div id="copilotSection" class="copilot-section" style="display: none;">
+        <h3 style="margin-top: 30px; margin-bottom: 15px;">🤖 GitHub Copilot Agent Integration</h3>
+        <div class="copilot-controls">
+          <div class="form-group">
+            <label for="orgSelect">Organization:</label>
+            <select id="orgSelect" onchange="onOrgChange()">
+              <option value="">-- Select Organization --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="repoSelect">Repository:</label>
+            <select id="repoSelect" disabled>
+              <option value="">-- Select Repository --</option>
+            </select>
+          </div>
+          <button id="createIssueBtn" class="copilot-button" onclick="createIssueWithCopilot()" disabled>
+            🚀 Create Issue & Assign to Copilot
+          </button>
+        </div>
+        <div id="copilotError" class="error-message" style="display: none;"></div>
       </div>
 
       <script>
         const vscode = acquireVsCodeApi();
+        const copilotEnabled = ${this.isCopilotAgentEnabled()};
+        let isEditMode = false;
+
+        // Initialize
+        if (copilotEnabled) {
+          document.getElementById('copilotSection').style.display = 'block';
+          loadOrganizations();
+        }
+
+        function editPlan() {
+          isEditMode = true;
+          document.getElementById('planView').style.display = 'none';
+          document.getElementById('planEdit').style.display = 'block';
+          document.getElementById('viewActions').style.display = 'none';
+          document.getElementById('editActions').style.display = 'flex';
+          document.getElementById('copilotSection').style.display = 'none';
+
+          // Focus the textarea
+          document.getElementById('planTextarea').focus();
+        }
+
+        function cancelEdit() {
+          isEditMode = false;
+          document.getElementById('planView').style.display = 'block';
+          document.getElementById('planEdit').style.display = 'none';
+          document.getElementById('viewActions').style.display = 'flex';
+          document.getElementById('editActions').style.display = 'none';
+          if (copilotEnabled) {
+            document.getElementById('copilotSection').style.display = 'block';
+          }
+        }
+
+        function savePlan() {
+          const textarea = document.getElementById('planTextarea');
+          const newPlan = textarea.value;
+
+          vscode.postMessage({
+            command: 'savePlan',
+            plan: newPlan
+          });
+
+          // Exit edit mode after saving
+          cancelEdit();
+        }
 
         function copyPlan() {
           vscode.postMessage({ command: 'copyPlan' });
@@ -284,6 +580,139 @@ export class PlanViewPanel {
 
         function openWorkItem() {
           vscode.postMessage({ command: 'openWorkItem' });
+        }
+
+        function loadOrganizations() {
+          vscode.postMessage({ command: 'loadOrganizations' });
+        }
+
+        function onOrgChange() {
+          const orgSelect = document.getElementById('orgSelect');
+          const repoSelect = document.getElementById('repoSelect');
+          const createBtn = document.getElementById('createIssueBtn');
+
+          const selectedOrg = orgSelect.value;
+
+          // Reset repository dropdown
+          repoSelect.innerHTML = '<option value="">-- Select Repository --</option>';
+          repoSelect.disabled = !selectedOrg;
+          createBtn.disabled = true;
+
+          if (selectedOrg) {
+            vscode.postMessage({
+              command: 'loadRepositories',
+              organization: selectedOrg
+            });
+          }
+        }
+
+        function onRepoChange() {
+          const repoSelect = document.getElementById('repoSelect');
+          const createBtn = document.getElementById('createIssueBtn');
+          createBtn.disabled = !repoSelect.value;
+        }
+
+        function createIssueWithCopilot() {
+          const orgSelect = document.getElementById('orgSelect');
+          const repoSelect = document.getElementById('repoSelect');
+          const createBtn = document.getElementById('createIssueBtn');
+
+          const organization = orgSelect.value;
+          const repository = repoSelect.value;
+
+          if (!organization || !repository) {
+            showError('Please select both organization and repository');
+            return;
+          }
+
+          createBtn.disabled = true;
+          createBtn.textContent = '⏳ Creating issue...';
+
+          vscode.postMessage({
+            command: 'createIssueWithCopilot',
+            organization,
+            repository
+          });
+        }
+
+        function showError(message) {
+          const errorDiv = document.getElementById('copilotError');
+          errorDiv.textContent = message;
+          errorDiv.style.display = 'block';
+          setTimeout(() => {
+            errorDiv.style.display = 'none';
+          }, 5000);
+        }
+
+        // Handle messages from extension
+        window.addEventListener('message', event => {
+          const message = event.data;
+
+          switch (message.command) {
+            case 'organizationsLoaded':
+              handleOrganizationsLoaded(message);
+              break;
+            case 'repositoriesLoaded':
+              handleRepositoriesLoaded(message);
+              break;
+            case 'issueCreated':
+              handleIssueCreated(message);
+              break;
+          }
+        });
+
+        function handleOrganizationsLoaded(message) {
+          const orgSelect = document.getElementById('orgSelect');
+
+          if (message.error) {
+            showError(message.error);
+            return;
+          }
+
+          orgSelect.innerHTML = '<option value="">-- Select Organization --</option>';
+          message.organizations.forEach(org => {
+            const option = document.createElement('option');
+            option.value = org.login;
+            option.textContent = \`\${org.login}\${org.description ? ' - ' + org.description : ''}\`;
+            orgSelect.appendChild(option);
+          });
+        }
+
+        function handleRepositoriesLoaded(message) {
+          const repoSelect = document.getElementById('repoSelect');
+
+          if (message.error) {
+            showError(message.error);
+            return;
+          }
+
+          repoSelect.innerHTML = '<option value="">-- Select Repository --</option>';
+          message.repositories.forEach(repo => {
+            const option = document.createElement('option');
+            option.value = repo.name;
+            option.textContent = \`\${repo.name}\${repo.description ? ' - ' + repo.description : ''}\`;
+            repoSelect.appendChild(option);
+          });
+
+          repoSelect.disabled = false;
+          repoSelect.onchange = onRepoChange;
+        }
+
+        function handleIssueCreated(message) {
+          const createBtn = document.getElementById('createIssueBtn');
+
+          if (message.error) {
+            createBtn.disabled = false;
+            createBtn.textContent = '🚀 Create Issue & Assign to Copilot';
+            showError(message.error);
+            return;
+          }
+
+          createBtn.textContent = '✅ Issue Created!';
+          setTimeout(() => {
+            createBtn.disabled = false;
+            createBtn.textContent = '🚀 Create Issue & Assign to Copilot';
+          }, 3000);
         }
       </script>
     </body>

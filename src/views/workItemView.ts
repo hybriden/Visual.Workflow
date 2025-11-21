@@ -3,6 +3,7 @@ import { WorkItem } from '../models/workItem';
 import { AzureDevOpsApi } from '../azureDevOps/api';
 import { AiServiceManager } from '../ai/aiServiceManager';
 import { PlanViewPanel } from './planView';
+import { EstimateChecker } from '../utils/estimateChecker';
 
 /**
  * Webview panel for displaying work item details
@@ -467,6 +468,10 @@ export class WorkItemViewPanel {
     const tags = fields['System.Tags'] || 'No tags';
     const remainingWork = fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0;
 
+    // Estimate summary and over-estimate check
+    const estimateSummary = EstimateChecker.getEstimateSummary(this.workItem);
+    const showAlerts = vscode.workspace.getConfiguration('azureDevOps').get<boolean>('showOverEstimateAlerts', true);
+
     // Parent work item info
     const parentInfo = this.parentWorkItem ? `#${this.parentWorkItem.id} - ${this.parentWorkItem.fields['System.Title']}` : null;
     const parentType = this.parentWorkItem ? this.parentWorkItem.fields['System.WorkItemType'] : null;
@@ -578,6 +583,28 @@ export class WorkItemViewPanel {
           margin: 20px 0;
           padding: 15px 0;
           border-top: 1px solid var(--vscode-panel-border);
+        }
+        .warning-banner {
+          background-color: var(--vscode-inputValidation-warningBackground);
+          border: 1px solid var(--vscode-inputValidation-warningBorder);
+          border-radius: 4px;
+          padding: 12px 16px;
+          margin: 15px 0;
+        }
+        .warning-banner-severe {
+          background-color: var(--vscode-inputValidation-errorBackground);
+          border: 1px solid var(--vscode-inputValidation-errorBorder);
+        }
+        .warning-banner-title {
+          font-weight: 600;
+          font-size: 14px;
+          margin-bottom: 8px;
+          color: var(--vscode-foreground);
+        }
+        .warning-banner-details {
+          font-size: 12px;
+          color: var(--vscode-descriptionForeground);
+          line-height: 1.6;
         }
         .ai-banner {
           background-color: var(--vscode-inputValidation-warningBackground);
@@ -758,6 +785,19 @@ export class WorkItemViewPanel {
         </div>
       </div>
 
+      ${estimateSummary.isOver && showAlerts ? `
+      <div class="warning-banner ${estimateSummary.percentage > 25 ? 'warning-banner-severe' : ''}">
+        <div class="warning-banner-title">⚠️ Over Estimate Alert - ${estimateSummary.percentage.toFixed(1)}% over original estimate</div>
+        <div class="warning-banner-details">
+          Original Estimate: ${estimateSummary.originalEstimate}h •
+          Completed: ${estimateSummary.completedWork}h •
+          Remaining: ${estimateSummary.remainingWork}h •
+          Total: ${estimateSummary.totalWork}h •
+          Over by: ${estimateSummary.overBy.toFixed(1)}h
+        </div>
+      </div>
+      ` : ''}
+
       <div class="actions">
         <div class="section-title">Actions</div>
         <div style="margin-top: 15px;">
@@ -804,10 +844,29 @@ export class WorkItemViewPanel {
           <div class="field-label">Tags:</div>
           <div class="field-value">${tags}</div>
         </div>
+        ${estimateSummary.originalEstimate > 0 ? `
+        <div class="field">
+          <div class="field-label">Original Estimate:</div>
+          <div class="field-value">${estimateSummary.originalEstimate}h</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Completed Work:</div>
+          <div class="field-value">${estimateSummary.completedWork}h</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Remaining Work:</div>
+          <div class="field-value">${estimateSummary.remainingWork}h</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Total Work:</div>
+          <div class="field-value">${estimateSummary.totalWork}h</div>
+        </div>
+        ` : `
         <div class="field">
           <div class="field-label">Remaining Work:</div>
           <div class="field-value">${remainingWork}h</div>
         </div>
+        `}
         <div class="field">
           <div class="field-label">Created:</div>
           <div class="field-value">${createdDate}</div>
