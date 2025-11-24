@@ -55,7 +55,8 @@ export class EstimateChecker {
     const totalWork = completedWork + remainingWork;
     const overBy = totalWork - originalEstimate;
     const percentage = originalEstimate > 0 ? (overBy / originalEstimate) * 100 : 0;
-    const isOver = overBy > 0;
+    // Only consider "over" if there was an original estimate AND total exceeds it
+    const isOver = originalEstimate > 0 && totalWork > originalEstimate;
 
     return {
       originalEstimate,

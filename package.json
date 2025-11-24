@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -92,6 +92,11 @@
         "icon": "$(arrow-swap)"
       },
       {
+        "command": "azureDevOps.expandAllSprintBoard",
+        "title": "Azure DevOps: Expand All Sprint Board Items",
+        "icon": "$(expand-all)"
+      },
+      {
         "command": "azureDevOps.showAiStatus",
         "title": "Azure DevOps: Show AI Status",
         "icon": "$(info)"
@@ -127,6 +132,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "azureDevOps.contextAssignChildrenToMe",
+        "title": "Assign All Children to Me",
+        "icon": "$(person)"
+      },
+      {
         "command": "azureDevOps.refreshProjectManager",
         "title": "Azure DevOps: Refresh Project Manager",
         "icon": "$(refresh)"
@@ -148,6 +158,11 @@
           "command": "azureDevOps.createWorkItem",
           "when": "view == azureDevOpsSprintBoard",
           "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.expandAllSprintBoard",
+          "when": "view == azureDevOpsSprintBoard",
+          "group": "navigation@3"
         },
         {
           "command": "azureDevOps.createWorkItem",
@@ -192,9 +207,19 @@
           "group": "status@1"
         },
         {
+          "command": "azureDevOps.contextAssignChildrenToMe",
+          "when": "view == azureDevOpsSprintBoard && viewItem == workItem",
+          "group": "assign@1"
+        },
+        {
           "command": "azureDevOps.contextChangeStatus",
           "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
           "group": "status@1"
+        },
+        {
+          "command": "azureDevOps.contextAssignChildrenToMe",
+          "when": "view == azureDevOpsMyWorkItems && viewItem == workItem",
+          "group": "assign@1"
         },
         {
           "command": "azureDevOps.contextCreateChildTask",
@@ -205,6 +230,11 @@
           "command": "azureDevOps.contextChangeStatus",
           "when": "view == azureDevOpsProjectManager && viewItem == workItem",
           "group": "status@1"
+        },
+        {
+          "command": "azureDevOps.contextAssignChildrenToMe",
+          "when": "view == azureDevOpsProjectManager && viewItem == workItem",
+          "group": "assign@1"
         }
       ]
     },
@@ -338,7 +368,7 @@
         },
         "azureDevOps.projectManagerGroupBy": {
           "type": "string",
-          "enum": ["state", "type", "iteration", "assignedTo"],
+          "enum": ["state", "type", "iteration", "assignedTo", "epic"],
           "default": "state",
           "description": "How to group work items in Project Manager view"
         }

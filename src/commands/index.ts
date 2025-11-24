@@ -8,6 +8,7 @@ import { ProjectManagerProvider } from '../views/projectManagerPanel';
 import { registerFilterCommands } from './filterCommands';
 import { registerProjectSwitcher } from './projectSwitcher';
 import { registerAiCommands } from './aiCommands';
+import { shouldPromptParentUpdate, promptAndUpdateParent } from '../utils/parentStatusHelper';
 
 /**
  * Register all extension commands
@@ -133,29 +134,18 @@ export function registerCommands(
             cancellable: false
           },
           async () => {
-            // Get current user to auto-assign
-            let currentUserEmail: string | undefined;
-            try {
-              const currentUser = await api.getCurrentUserConnection();
-              currentUserEmail = currentUser.providerDisplayName || currentUser.displayName;
-            } catch (error) {
-              console.error('Could not get current user for auto-assignment:', error);
-              // Continue without auto-assignment if user lookup fails
-            }
-
             const newWorkItem = await api.createWorkItem(
               workItemType,
               title,
-              description,
-              currentUserEmail
+              description
             );
 
             vscode.window.showInformationMessage(
-              `Work item #${newWorkItem.id} created and assigned to you!`
+              `Work item #${newWorkItem.id} created!`
             );
 
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
 
             // Open the new work item
             WorkItemViewPanel.createOrShow(newWorkItem);
@@ -184,7 +174,7 @@ export function registerCommands(
           cancellable: false
         },
         async () => {
-          await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+          await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
         }
       );
 
@@ -260,14 +250,23 @@ export function registerCommands(
           async () => {
             await api.changeWorkItemState(selectedItem.workItem.id, newState);
 
-            vscode.window.showInformationMessage(
-              `Work item #${selectedItem.workItem.id} state changed to "${newState}"`
-            );
-
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
           }
         );
+
+        // Check if we should prompt to update parent
+        const parent = await shouldPromptParentUpdate(selectedItem.workItem, newState);
+        if (parent) {
+          await promptAndUpdateParent(parent, selectedItem.workItem.id, newState);
+          // Refresh views again if parent was updated
+          await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+        } else {
+          // Only show success message if we're not prompting for parent
+          vscode.window.showInformationMessage(
+            `Work item #${selectedItem.workItem.id} state changed to "${newState}"`
+          );
+        }
       } catch (error) {
         vscode.window.showErrorMessage(
           `Failed to change work item status: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -330,7 +329,7 @@ export function registerCommands(
             );
 
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
           }
         );
       } catch (error) {
@@ -393,7 +392,7 @@ export function registerCommands(
             );
 
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
           }
         );
       } catch (error) {
@@ -444,14 +443,23 @@ export function registerCommands(
           async () => {
             await api.changeWorkItemState(workItem.id, newState);
 
-            vscode.window.showInformationMessage(
-              `Work item #${workItem.id} state changed to "${newState}"`
-            );
-
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
           }
         );
+
+        // Check if we should prompt to update parent
+        const parent = await shouldPromptParentUpdate(workItem, newState);
+        if (parent) {
+          await promptAndUpdateParent(parent, workItem.id, newState);
+          // Refresh views again if parent was updated
+          await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+        } else {
+          // Only show success message if we're not prompting for parent
+          vscode.window.showInformationMessage(
+            `Work item #${workItem.id} state changed to "${newState}"`
+          );
+        }
       } catch (error) {
         vscode.window.showErrorMessage(
           `Failed to change work item status: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -515,53 +523,26 @@ export function registerCommands(
               vscode.window.showWarningMessage('Task created but failed to link to parent.');
             }
 
-            // Get current user for auto-assignment
-            let currentUserEmail: string | undefined;
-            try {
-              const currentUser = await api.getCurrentUserConnection();
-              currentUserEmail = currentUser.providerDisplayName || currentUser.displayName;
-            } catch (error) {
-              console.error('Could not get current user for auto-assignment:', error);
-            }
-
-            // Prepare updates for iteration path and assignment
-            const updates: Array<{ op: string; path: string; value: any }> = [];
-
-            // Add iteration path from parent
+            // Set iteration path from parent
             const parentIteration = parentWorkItem.fields['System.IterationPath'];
             if (parentIteration) {
-              updates.push({
-                op: 'add',
-                path: '/fields/System.IterationPath',
-                value: parentIteration
-              });
-            }
-
-            // Add assignment if we got the current user
-            if (currentUserEmail) {
-              updates.push({
-                op: 'add',
-                path: '/fields/System.AssignedTo',
-                value: currentUserEmail
-              });
-            }
-
-            // Apply field updates
-            if (updates.length > 0) {
               try {
-                await api.updateWorkItem(newTask.id, updates);
+                await api.updateWorkItem(newTask.id, [{
+                  op: 'add',
+                  path: '/fields/System.IterationPath',
+                  value: parentIteration
+                }]);
               } catch (error) {
-                console.error('Failed to update task fields:', error);
-                vscode.window.showWarningMessage('Task created but some fields could not be set.');
+                console.error('Failed to set iteration path:', error);
               }
             }
 
             vscode.window.showInformationMessage(
-              `Task #${newTask.id} created under #${parentId}${currentUserEmail && updates.length > 0 ? ' and assigned to you' : ''}!`
+              `Task #${newTask.id} created under #${parentId}!`
             );
 
             // Refresh views
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider);
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
 
             // Refresh the updated work item to show the new child
             const updatedWorkItem = await api.getWorkItem(newTask.id);
@@ -572,6 +553,178 @@ export function registerCommands(
         vscode.window.showErrorMessage(
           `Failed to create task: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
+      }
+    })
+  );
+
+  // Helper function to get current user identity
+  async function getCurrentUserIdentity(): Promise<any> {
+    // First, check if we already have work items assigned to us
+    const myWorkItems = myWorkItemsProvider.getWorkItems();
+    if (myWorkItems.length > 0) {
+      const assignedToField = myWorkItems[0].fields['System.AssignedTo'];
+      if (assignedToField) {
+        console.log('[Assignment] Using identity from existing work item:', assignedToField);
+        return assignedToField;
+      }
+    }
+
+    // If we couldn't get identity from existing items, query for one
+    const wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me ORDER BY [System.ChangedDate] DESC`;
+    const ids = await api.queryWorkItems(wiql);
+
+    if (ids.length > 0) {
+      const items = await api.getWorkItems([ids[0]]);
+      if (items.length > 0) {
+        const identity = items[0].fields['System.AssignedTo'];
+        console.log('[Assignment] Using identity from queried work item:', identity);
+        return identity;
+      }
+    }
+
+    return null;
+  }
+
+  // Assign Work Item to Me
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.assignToMe', async (workItem: WorkItem) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const currentUserIdentity = await getCurrentUserIdentity();
+
+        if (!currentUserIdentity) {
+          vscode.window.showErrorMessage('Could not determine your user identity. Try assigning a work item to yourself manually first, then try again.');
+          return;
+        }
+
+        // Update assignment
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Assigning work item #${workItem.id} to you...`,
+            cancellable: false
+          },
+          async () => {
+            await api.updateWorkItem(workItem.id, [{
+              op: 'add',
+              path: '/fields/System.AssignedTo',
+              value: currentUserIdentity
+            }]);
+
+            vscode.window.showInformationMessage(
+              `Work item #${workItem.id} assigned to you!`
+            );
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+
+            // Refresh the work item view if it's open
+            vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to assign work item: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+        console.error('Assignment error:', error);
+      }
+    })
+  );
+
+  // Assign All Children to Me
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.contextAssignChildrenToMe', async (treeItem: any) => {
+      if (!auth.isConfigured()) {
+        await auth.promptConfiguration();
+        return;
+      }
+
+      try {
+        const parentWorkItem = treeItem.workItem;
+        const parentId = parentWorkItem.id;
+        const parentTitle = parentWorkItem.fields['System.Title'];
+
+        // Get current user identity
+        const currentUserIdentity = await getCurrentUserIdentity();
+
+        if (!currentUserIdentity) {
+          vscode.window.showErrorMessage('Could not determine your user identity. Try assigning a work item to yourself manually first, then try again.');
+          return;
+        }
+
+        // Get all children of this work item
+        const childIds = await api.getChildWorkItems(parentId);
+
+        if (childIds.length === 0) {
+          vscode.window.showInformationMessage(`Work item #${parentId} has no child work items.`);
+          return;
+        }
+
+        // Confirm with user
+        const action = await vscode.window.showInformationMessage(
+          `Assign ${childIds.length} child work item${childIds.length > 1 ? 's' : ''} of "${parentTitle}" to you?`,
+          'Yes, Assign All',
+          'Cancel'
+        );
+
+        if (action !== 'Yes, Assign All') {
+          return;
+        }
+
+        // Assign all children
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Assigning ${childIds.length} child work items to you...`,
+            cancellable: false
+          },
+          async (progress) => {
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < childIds.length; i++) {
+              const childId = childIds[i];
+              progress.report({
+                message: `Assigning ${i + 1} of ${childIds.length}...`,
+                increment: (100 / childIds.length)
+              });
+
+              try {
+                await api.updateWorkItem(childId, [{
+                  op: 'add',
+                  path: '/fields/System.AssignedTo',
+                  value: currentUserIdentity
+                }]);
+                successCount++;
+              } catch (error) {
+                console.error(`Failed to assign child work item ${childId}:`, error);
+                failCount++;
+              }
+            }
+
+            if (failCount > 0) {
+              vscode.window.showWarningMessage(
+                `Assigned ${successCount} of ${childIds.length} child work items. ${failCount} failed.`
+              );
+            } else {
+              vscode.window.showInformationMessage(
+                `Successfully assigned all ${successCount} child work items to you!`
+              );
+            }
+
+            // Refresh views
+            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+          }
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to assign children: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+        console.error('Assignment error:', error);
       }
     })
   );
@@ -589,10 +742,17 @@ export function registerCommands(
  */
 async function refreshAllViews(
   sprintBoardProvider: SprintBoardProvider,
-  myWorkItemsProvider: MyWorkItemsProvider
+  myWorkItemsProvider: MyWorkItemsProvider,
+  projectManagerProvider?: ProjectManagerProvider
 ): Promise<void> {
-  await Promise.all([
+  const promises = [
     sprintBoardProvider.loadWorkItems(),
     myWorkItemsProvider.loadWorkItems()
-  ]);
+  ];
+
+  if (projectManagerProvider) {
+    promises.push(projectManagerProvider.loadWorkItems());
+  }
+
+  await Promise.all(promises);
 }

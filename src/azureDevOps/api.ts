@@ -60,7 +60,7 @@ export class AzureDevOpsApi {
    */
   private getBaseUrl(): string {
     const org = this.auth.getOrganization();
-    return `https://dev.azure.com/${org}`;
+    return `https://dev.azure.com/${encodeURIComponent(org || '')}`;
   }
 
   /**
@@ -68,7 +68,7 @@ export class AzureDevOpsApi {
    */
   private getProjectUrl(): string {
     const project = this.auth.getProject();
-    return `${this.getBaseUrl()}/${project}`;
+    return `${this.getBaseUrl()}/${encodeURIComponent(project || '')}`;
   }
 
   /**
@@ -135,18 +135,25 @@ export class AzureDevOpsApi {
   public async getCurrentIteration(): Promise<Iteration | null> {
     try {
       const team = this.auth.getTeam();
-      const teamPath = team ? `/${team}` : '';
+      const teamPath = team ? `/${encodeURIComponent(team)}` : '';
       const url = `${this.getProjectUrl()}${teamPath}/_apis/work/teamsettings/iterations?$timeframe=current&api-version=7.0`;
+
+      console.log('[Sprint Board] Fetching current iteration');
+      console.log('[Sprint Board] Team:', team);
+      console.log('[Sprint Board] URL:', url);
 
       const response = await this.axiosInstance.get(url);
 
       if (response.data.value && response.data.value.length > 0) {
+        console.log('[Sprint Board] Found iteration:', response.data.value[0].name);
         return response.data.value[0];
       }
 
+      console.log('[Sprint Board] No current iteration found');
       return null;
     } catch (error) {
       console.error('Error fetching current iteration:', error);
+      console.error('Error details:', (error as any).response?.data);
       throw error;
     }
   }
@@ -171,7 +178,42 @@ export class AzureDevOpsApi {
   }
 
   /**
-   * Get work items by IDs
+   * Get child work items for a parent work item ID
+   */
+  public async getChildWorkItems(parentId: number): Promise<number[]> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/wit/wiql?api-version=7.0`;
+
+      const wiql = `
+        SELECT [System.Id]
+        FROM WorkItemLinks
+        WHERE [Source].[System.Id] = ${parentId}
+        AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+        MODE (MustContain)
+      `;
+
+      const response = await this.axiosInstance.post(url, {
+        query: wiql
+      });
+
+      // Work item link queries return workItemRelations, not workItems
+      const relations = response.data.workItemRelations || [];
+
+      // Filter out the source (parent) and extract target (child) IDs
+      const childIds = relations
+        .filter((rel: any) => rel.target) // Only relations with target (children)
+        .map((rel: any) => rel.target.id);
+
+      console.log(`[API] Found ${childIds.length} child work items for parent ${parentId}`);
+      return childIds;
+    } catch (error) {
+      console.error(`Error querying child work items for ${parentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get work items by IDs (with batching for large requests)
    */
   public async getWorkItems(ids: number[]): Promise<WorkItem[]> {
     if (ids.length === 0) {
@@ -179,13 +221,29 @@ export class AzureDevOpsApi {
     }
 
     try {
-      const idsString = ids.join(',');
-      const url = `${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsString}&$expand=all&api-version=7.0`;
+      console.log(`[API] Fetching ${ids.length} work items`);
 
-      const response = await this.axiosInstance.get(url);
-      return response.data.value;
+      // Azure DevOps has a limit of 200 work items per request
+      const batchSize = 200;
+      const allWorkItems: WorkItem[] = [];
+
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+        const idsString = batchIds.join(',');
+        const url = `${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsString}&$expand=all&api-version=7.0`;
+
+        console.log(`[API] Fetching batch ${Math.floor(i / batchSize) + 1} of ${Math.ceil(ids.length / batchSize)} (${batchIds.length} items)`);
+        console.log(`[API] URL: ${url.substring(0, 150)}...`);
+
+        const response = await this.axiosInstance.get(url);
+        allWorkItems.push(...response.data.value);
+      }
+
+      console.log(`[API] Successfully fetched ${allWorkItems.length} work items`);
+      return allWorkItems;
     } catch (error) {
       console.error('Error fetching work items:', error);
+      console.error('Error details:', (error as any).response?.data);
       throw error;
     }
   }
@@ -290,6 +348,9 @@ export class AzureDevOpsApi {
    */
   public async getAllProjectWorkItems(): Promise<WorkItem[]> {
     try {
+      const projectName = this.auth.getProject();
+      console.log('[Project Manager] Fetching work items for project:', projectName);
+
       // Get filter settings
       const config = vscode.workspace.getConfiguration('azureDevOps');
       const hideCompleted = config.get<boolean>('hideCompletedItems', true);
@@ -311,12 +372,15 @@ export class AzureDevOpsApi {
       const wiql = `
         SELECT [System.Id]
         FROM WorkItems
-        WHERE [System.TeamProject] = '${this.auth.getProject()}'
+        WHERE [System.TeamProject] = '${projectName}'
         ${stateFilter}
         ORDER BY [System.ChangedDate] DESC
       `;
 
+      console.log('[Project Manager] WIQL query:', wiql);
+
       const ids = await this.queryWorkItems(wiql);
+      console.log('[Project Manager] Found work item IDs:', ids.length);
       return await this.getWorkItems(ids);
     } catch (error) {
       console.error('Error fetching all project work items:', error);
@@ -405,6 +469,8 @@ export class AzureDevOpsApi {
     try {
       const url = `${this.getBaseUrl()}/_apis/wit/workitems/${id}?api-version=7.0`;
 
+      console.log(`[API] Updating work item ${id} with:`, JSON.stringify(updates, null, 2));
+
       const response = await this.axiosInstance.patch(url, updates, {
         headers: {
           'Content-Type': 'application/json-patch+json'
@@ -412,8 +478,10 @@ export class AzureDevOpsApi {
       });
 
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error updating work item ${id}:`, error);
+      console.error('Error response:', error.response?.status, error.response?.data);
+      console.error('Updates that failed:', JSON.stringify(updates, null, 2));
       throw error;
     }
   }

@@ -20,7 +20,9 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **Dynamic State Management**: State dropdown shows only valid transitions for your workflow
 - **Parent Work Item Navigation**: Click on parent work items to view their details
 - **Create Child Tasks**: Right-click any work item to add tasks underneath
-- **Auto-Assignment**: New work items automatically assigned to you
+- **Parent Status Sync**: When moving a child task to "In Progress", get prompted to update parent status automatically
+- **Quick Assignment**: "Assign to Me" button for instant work item assignment
+- **Bulk Assignment**: Assign all child work items to yourself with one click
 
 ### Comments & Collaboration
 - **Add Comments**: Comment directly on work items from VS Code
@@ -28,8 +30,9 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **Real-time Updates**: Comments refresh automatically after changes
 
 ### Context Menus
-- **Sprint Board**: Right-click work items to remove from sprint or change status
-- **My Work Items**: Right-click to add to sprint, change status, or create child tasks
+- **Sprint Board**: Right-click work items to remove from sprint, change status, or assign all children
+- **My Work Items**: Right-click to add to sprint, change status, create child tasks, or assign all children
+- **Project Manager**: Right-click to change status, create child tasks, or assign all children
 - **Quick Actions**: All common operations accessible via right-click
 
 ### AI-Powered Features
@@ -133,6 +136,7 @@ When you click on a work item, you'll see:
   - **Add to Sprint**: Add work item to current sprint (if not already in it)
   - **Remove from Sprint**: Remove work item from current sprint (if in it)
   - **Set Estimate**: Quick dialog to set remaining work hours
+  - **Assign to Me**: Instantly assign the work item to yourself
   - **Refresh button**: Reload work item data
   - **Open in Browser**: View work item in Azure DevOps web portal
   - **Generate Description button**: Create AI-powered descriptions (if AI is enabled)
@@ -155,6 +159,34 @@ Three methods:
 
 The state dropdown dynamically shows only valid state transitions for your Azure DevOps workflow configuration.
 
+### Parent Status Synchronization
+
+When you move a child task (e.g., a Task under a User Story) to "In Progress", "Active", or "Committed", the extension will automatically check if the parent is still in a "not started" state (New, To Do, or Proposed).
+
+If the parent needs updating, you'll see a **modal dialog** asking if you want to move the parent to "In Progress" as well. This helps keep your work item hierarchy in sync and ensures parent items accurately reflect that work has started.
+
+**Example:**
+1. You have a User Story in "New" state
+2. You move one of its child Tasks to "In Progress"
+3. A dialog appears: *"Child task #12345 is now 'In Progress'. Do you want to move parent #67890 (User Story Title) from 'New' to 'In Progress'?"*
+4. Click "Yes, Update Parent" to sync both, or "No, Keep As Is" to only update the child
+
+### Assigning Work Items
+
+**Assign to Me (Single Work Item):**
+1. Open a work item details view
+2. Click the **"👤 Assign to Me"** button
+3. Work item is instantly assigned to you
+
+**Assign All Children to Me (Bulk Assignment):**
+1. Right-click a parent work item (User Story, Bug, Feature, etc.) in any view
+2. Select **"Assign All Children to Me"**
+3. Confirm the action
+4. All child work items are assigned to you with progress tracking
+5. View shows success/failure count
+
+This is perfect for when you're taking ownership of a User Story and want to assign all its Tasks to yourself at once.
+
 ### Context Menu Actions
 
 Right-click any work item in Sprint Board or My Work Items for quick actions:
@@ -163,11 +195,18 @@ Right-click any work item in Sprint Board or My Work Items for quick actions:
 - **Add Task**: Create a child task under the selected work item
 - **Remove from Sprint**: Move work item to backlog (with confirmation)
 - **Change Status**: Quick pick to select new state
+- **Assign All Children to Me**: Assign all child work items to yourself
 
 **My Work Items:**
 - **Add Task**: Create a child task under the selected work item
 - **Add to Current Sprint**: Move work item to active sprint
 - **Change Status**: Quick pick to select new state
+- **Assign All Children to Me**: Assign all child work items to yourself
+
+**Project Manager:**
+- **Add Task**: Create a child task under the selected work item
+- **Change Status**: Quick pick to select new state
+- **Assign All Children to Me**: Assign all child work items to yourself
 
 ### Creating Work Items
 
@@ -319,6 +358,14 @@ This extension contributes the following settings:
 - `azureDevOps.enableCopilotAgent`: Enable GitHub Copilot coding agent integration to create issues from implementation plans (default: `false`)
 - `azureDevOps.githubDefaultOrg`: Default GitHub organization for Copilot agent integration (optional)
 
+### Project Manager Settings
+
+- `azureDevOps.enableProjectManager`: Enable Project Manager view showing all work items in the project (default: `false`)
+- `azureDevOps.projectManagerGroupBy`: How to group work items in Project Manager view (default: `state`)
+  - Options: `state`, `type`, `iteration`, `assignedTo`, `epic`
+- `azureDevOps.showOverEstimateAlerts`: Show visual alerts for work items that exceed their original estimates (default: `true`)
+- `azureDevOps.overEstimateThreshold`: Percentage threshold for over-estimate alerts (default: `0` - any over-estimate)
+
 **Note**:
 - Project and team settings are managed via the Setup Wizard and Quick Switch commands, not manually in settings.
 - GitHub authentication for Copilot agent is automatic via VS Code - no manual token setup required.
@@ -342,6 +389,50 @@ This extension contributes the following settings:
 None currently. Please report issues on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
 
 ## Release Notes
+
+### 0.3.4
+
+**New Features:**
+- **Assignment Indicators**: Visual indicator (👤 icon) shows which work items are assigned to you
+  - Appears in Sprint Board, My Work Items, and Project Manager views
+  - Makes it easy to spot your assignments at a glance
+  - Automatically detects current user from assigned work items
+- **Epic Grouping in Project Manager**: New grouping option to organize work items by their parent Epic
+  - Accessible via the grouping button in Project Manager view
+  - Shows all work items grouped under their Epic with full hierarchy
+  - Items without an Epic appear in a "No Epic" category
+  - Epic groups display as "#ID: Title" for easy identification
+- **Expand All Button**: Added expand all button to Sprint Board view
+  - Click the expand-all icon (⊞) in Sprint Board toolbar
+  - Recursively expands all work items and their children
+  - Shows complete hierarchy (Epic → Feature → Story → Task, etc.)
+  - Progress notification shows expansion status
+
+**Bug Fixes:**
+- **Fixed Multi-Level Hierarchy Expansion**: Resolved issue where only 2 levels were expandable in tree views
+  - Sprint Board now supports unlimited hierarchy depth
+  - Project Manager now supports unlimited hierarchy depth for all grouping options
+  - Dynamic child discovery ensures all levels are properly expandable
+
+### 0.3.3
+
+**New Features:**
+- **Parent Status Synchronization**: When moving a child task to "In Progress", get prompted to automatically update parent status
+  - Modal dialog prompts you to move parent from "Not Started" states (New, To Do, Proposed) to "In Progress"
+  - Works for all status change methods: webview, command palette, and context menu
+  - Helps keep work item hierarchy in sync automatically
+- **Assign to Me Button**: Added quick "Assign to Me" button in work item details view
+  - Instant one-click assignment without navigation
+  - Removed automatic assignment on work item creation for more explicit control
+- **Assign All Children to Me**: New context menu option to bulk assign all child work items
+  - Available in Sprint Board, My Work Items, and Project Manager views
+  - Shows progress tracking with success/failure counts
+  - Perfect for taking ownership of an entire User Story with all its Tasks
+
+**Improvements:**
+- Enhanced work item assignment workflow with better user feedback
+- Improved modal dialog UX for parent status updates (prevents auto-dismissal)
+- Better handling of background operations during status changes
 
 ### 0.3.2
 

@@ -8,6 +8,11 @@ import { EstimateChecker } from '../utils/estimateChecker';
  */
 export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
   public children: WorkItem[] = [];
+  private static currentUser: { uniqueName: string, displayName: string } | null = null;
+
+  public static setCurrentUser(user: { uniqueName: string, displayName: string } | null) {
+    ProjectManagerWorkItemTreeItem.currentUser = user;
+  }
 
   constructor(
     public readonly workItem: WorkItem,
@@ -29,12 +34,21 @@ export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
     const isOver = EstimateChecker.isOverEstimate(workItem);
     const showAlerts = this.shouldShowAlerts();
 
+    // Check if assigned to current user
+    const assignedTo = workItem.fields['System.AssignedTo'];
+    const isAssignedToMe = this.isAssignedToCurrentUser(assignedTo);
+
     // Build description
     let description = '';
     if (showParentInDescription && parentId) {
       description = `#${id} - ${state} (Parent: #${parentId})`;
     } else {
       description = `#${id} - ${state}`;
+    }
+
+    // Add assignment indicator
+    if (isAssignedToMe) {
+      description = `👤 ${description}`;
     }
 
     if (isOver && showAlerts) {
@@ -68,6 +82,15 @@ export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
   private shouldShowAlerts(): boolean {
     const config = vscode.workspace.getConfiguration('azureDevOps');
     return config.get<boolean>('showOverEstimateAlerts', true);
+  }
+
+  private isAssignedToCurrentUser(assignedTo: any): boolean {
+    if (!assignedTo || !ProjectManagerWorkItemTreeItem.currentUser) {
+      return false;
+    }
+
+    return assignedTo.uniqueName === ProjectManagerWorkItemTreeItem.currentUser.uniqueName ||
+           assignedTo.displayName === ProjectManagerWorkItemTreeItem.currentUser.displayName;
   }
 
   private getThemeIcon(workItemType: string): string {
@@ -171,6 +194,11 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
   async loadWorkItems(): Promise<void> {
     try {
       this.workItems = await this.api.getAllProjectWorkItems();
+
+      // Set current user for assignment indicators
+      const currentUser = await this.getCurrentUser();
+      ProjectManagerWorkItemTreeItem.setCurrentUser(currentUser);
+
       this.hasLoaded = true;
       this._onDidChangeTreeData.fire();
     } catch (error) {
@@ -210,10 +238,21 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
       // Show work items in category with parent-child hierarchy
       return this.buildHierarchy(element.workItems);
     } else if (element instanceof ProjectManagerWorkItemTreeItem) {
-      // Show children of this work item
-      return element.children.map(
-        child => new ProjectManagerWorkItemTreeItem(child, vscode.TreeItemCollapsibleState.None, false)
-      );
+      // Show children of this work item - find all children from workItems
+      const parentId = element.workItem.fields['System.Id'];
+      const allChildren = this.workItems.filter(wi => wi.fields['System.Parent'] === parentId);
+
+      return allChildren.map(child => {
+        // Find this child's children
+        const grandchildren = this.workItems.filter(wi => wi.fields['System.Parent'] === child.fields['System.Id']);
+        const treeItem = new ProjectManagerWorkItemTreeItem(
+          child,
+          grandchildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+          false
+        );
+        treeItem.children = grandchildren;
+        return treeItem;
+      });
     }
 
     return [];
@@ -227,6 +266,8 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
         return this.groupByIteration();
       case 'assignedTo':
         return this.groupByAssignedTo();
+      case 'epic':
+        return this.groupByEpic();
       case 'state':
       default:
         return this.groupByState();
@@ -325,6 +366,80 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
     return items;
   }
 
+  private groupByEpic(): vscode.TreeItem[] {
+    // Create a map of all work items for easy lookup
+    const itemMap = new Map<number, WorkItem>();
+    this.workItems.forEach(wi => itemMap.set(wi.fields['System.Id'], wi));
+
+    // Helper function to find the epic for a work item
+    const findEpic = (workItem: WorkItem): WorkItem | null => {
+      let current = workItem;
+
+      // Walk up the parent chain
+      while (current) {
+        const workItemType = current.fields['System.WorkItemType'];
+
+        // If this is an Epic, we found it
+        if (workItemType === 'Epic') {
+          return current;
+        }
+
+        // Move to parent
+        const parentId = current.fields['System.Parent'];
+        if (parentId && itemMap.has(parentId)) {
+          current = itemMap.get(parentId)!;
+        } else {
+          // No parent found, stop searching
+          break;
+        }
+      }
+
+      return null;
+    };
+
+    // Group work items by their epic
+    const groups: { [key: string]: WorkItem[] } = {};
+    const epicMap = new Map<string, WorkItem>(); // Map epic key to epic work item
+
+    this.workItems.forEach(wi => {
+      const epic = findEpic(wi);
+
+      if (epic) {
+        const epicKey = `#${epic.fields['System.Id']}: ${epic.fields['System.Title']}`;
+        if (!groups[epicKey]) {
+          groups[epicKey] = [];
+          epicMap.set(epicKey, epic);
+        }
+        groups[epicKey].push(wi);
+      } else {
+        const noEpicKey = 'No Epic';
+        if (!groups[noEpicKey]) {
+          groups[noEpicKey] = [];
+        }
+        groups[noEpicKey].push(wi);
+      }
+    });
+
+    // Create category items sorted by epic ID (epics first, then "No Epic")
+    const items: vscode.TreeItem[] = [];
+    const sortedKeys = Object.keys(groups).sort((a, b) => {
+      if (a === 'No Epic') return 1;
+      if (b === 'No Epic') return -1;
+      return a.localeCompare(b);
+    });
+
+    for (const key of sortedKeys) {
+      const workItems = groups[key];
+      if (workItems.length > 0) {
+        items.push(
+          new CategoryTreeItem(key, workItems, vscode.TreeItemCollapsibleState.Collapsed)
+        );
+      }
+    }
+
+    return items;
+  }
+
   private buildHierarchy(workItems: WorkItem[]): ProjectManagerWorkItemTreeItem[] {
     // Create a map of work item ID to work item
     const itemMap = new Map<number, WorkItem>();
@@ -363,6 +478,25 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
       treeItem.children = children;
       return treeItem;
     });
+  }
+
+  private async getCurrentUser(): Promise<{ uniqueName: string, displayName: string } | null> {
+    try {
+      // Try to find current user from existing assigned work items
+      const myItems = await this.api.getMyWorkItems();
+      if (myItems.length > 0) {
+        const identity = myItems[0].fields['System.AssignedTo'];
+        if (identity) {
+          return {
+            uniqueName: identity.uniqueName || identity.displayName,
+            displayName: identity.displayName
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+    return null;
   }
 
   getWorkItems(): WorkItem[] {

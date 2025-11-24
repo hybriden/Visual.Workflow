@@ -12,6 +12,33 @@ let refreshTimer: NodeJS.Timeout | undefined;
 let projectManagerProvider: ProjectManagerProvider | undefined;
 
 /**
+ * Helper function to recursively expand all tree items
+ */
+async function expandRecursively(
+  treeView: vscode.TreeView<any>,
+  item: any,
+  provider: any,
+  depth: number = 0
+): Promise<void> {
+  try {
+    // Reveal and expand this item
+    await treeView.reveal(item, { expand: true, select: false, focus: false });
+
+    // Get children and expand them recursively
+    const children = await provider.getChildren(item);
+    if (children && children.length > 0) {
+      console.log(`  ${'  '.repeat(depth)}Expanding ${children.length} children at depth ${depth}`);
+      for (const child of children) {
+        await expandRecursively(treeView, child, provider, depth + 1);
+      }
+    }
+  } catch (error) {
+    console.log(`  ${'  '.repeat(depth)}Error at depth ${depth}:`, error);
+    // Continue with other items even if one fails
+  }
+}
+
+/**
  * Extension activation
  */
 export async function activate(context: vscode.ExtensionContext) {
@@ -49,6 +76,34 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(projectManagerView);
   }
+
+  // Register expand all command for Sprint Board
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.expandAllSprintBoard', async () => {
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Expanding all Sprint Board items...',
+            cancellable: false
+          },
+          async () => {
+            const rootItems = await sprintBoardProvider.getChildren();
+            console.log(`Expanding ${rootItems.length} root items`);
+
+            for (const item of rootItems) {
+              await expandRecursively(sprintBoardView, item, sprintBoardProvider);
+            }
+
+            vscode.window.showInformationMessage('All Sprint Board items expanded');
+          }
+        );
+      } catch (error) {
+        console.error('Error expanding items:', error);
+        vscode.window.showErrorMessage(`Failed to expand items: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    })
+  );
 
   // Register all commands
   registerCommands(context, sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
@@ -161,7 +216,8 @@ export async function activate(context: vscode.ExtensionContext) {
         { label: 'State', value: 'state' },
         { label: 'Work Item Type', value: 'type' },
         { label: 'Iteration', value: 'iteration' },
-        { label: 'Assigned To', value: 'assignedTo' }
+        { label: 'Assigned To', value: 'assignedTo' },
+        { label: 'Epic', value: 'epic' }
       ];
 
       const selected = await vscode.window.showQuickPick(options, {

@@ -4,6 +4,7 @@ import { AzureDevOpsApi } from '../azureDevOps/api';
 import { AiServiceManager } from '../ai/aiServiceManager';
 import { PlanViewPanel } from './planView';
 import { EstimateChecker } from '../utils/estimateChecker';
+import { shouldPromptParentUpdate, promptAndUpdateParent } from '../utils/parentStatusHelper';
 
 /**
  * Webview panel for displaying work item details
@@ -67,6 +68,9 @@ export class WorkItemViewPanel {
           case 'setEstimate':
             await this.setEstimate(message.hours);
             break;
+          case 'assignToMe':
+            await this.assignToMe();
+            break;
         }
       },
       null,
@@ -106,13 +110,26 @@ export class WorkItemViewPanel {
   private async changeState(newState: string) {
     try {
       await this.api.changeWorkItemState(this.workItem.id, newState);
-      vscode.window.showInformationMessage(
-        `Work item #${this.workItem.id} state changed to "${newState}"`
-      );
       await this.refresh();
 
       // Refresh the sprint board
       vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
+
+      // Check if we should prompt to update parent
+      const parent = await shouldPromptParentUpdate(this.workItem, newState);
+      if (parent) {
+        const updated = await promptAndUpdateParent(parent, this.workItem.id, newState);
+        if (updated) {
+          // Refresh again if parent was updated
+          await this.refresh();
+          vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
+        }
+      } else {
+        // Only show success message if we're not prompting for parent
+        vscode.window.showInformationMessage(
+          `Work item #${this.workItem.id} state changed to "${newState}"`
+        );
+      }
     } catch (error) {
       vscode.window.showErrorMessage(
         `Failed to change state: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -400,6 +417,28 @@ export class WorkItemViewPanel {
     }
   }
 
+  private async assignToMe() {
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Assigning to you...',
+          cancellable: false
+        },
+        async () => {
+          await vscode.commands.executeCommand('azureDevOps.assignToMe', this.workItem);
+
+          // Refresh the view to show the updated assignment
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to assign: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
   public dispose() {
     WorkItemViewPanel.currentPanel = undefined;
 
@@ -584,14 +623,20 @@ export class WorkItemViewPanel {
           padding: 15px 0;
           border-top: 1px solid var(--vscode-panel-border);
         }
-        .warning-banner {
-          background-color: var(--vscode-inputValidation-warningBackground);
-          border: 1px solid var(--vscode-inputValidation-warningBorder);
+        .estimate-banner {
           border-radius: 4px;
           padding: 12px 16px;
           margin: 15px 0;
         }
-        .warning-banner-severe {
+        .estimate-banner-on-track {
+          background-color: rgba(22, 163, 74, 0.15);
+          border: 1px solid rgba(22, 163, 74, 0.4);
+        }
+        .estimate-banner-warning {
+          background-color: var(--vscode-inputValidation-warningBackground);
+          border: 1px solid var(--vscode-inputValidation-warningBorder);
+        }
+        .estimate-banner-severe {
           background-color: var(--vscode-inputValidation-errorBackground);
           border: 1px solid var(--vscode-inputValidation-errorBorder);
         }
@@ -785,15 +830,24 @@ export class WorkItemViewPanel {
         </div>
       </div>
 
-      ${estimateSummary.isOver && showAlerts ? `
-      <div class="warning-banner ${estimateSummary.percentage > 25 ? 'warning-banner-severe' : ''}">
-        <div class="warning-banner-title">⚠️ Over Estimate Alert - ${estimateSummary.percentage.toFixed(1)}% over original estimate</div>
+      ${estimateSummary.originalEstimate > 0 && showAlerts ? `
+      <div class="estimate-banner ${
+        !estimateSummary.isOver ? 'estimate-banner-on-track' :
+        estimateSummary.percentage > 25 ? 'estimate-banner-severe' :
+        'estimate-banner-warning'
+      }">
+        <div class="warning-banner-title">${
+          !estimateSummary.isOver
+            ? `✅ On Track - ${Math.abs(estimateSummary.percentage).toFixed(1)}% under original estimate`
+            : `⚠️ Over Estimate Alert - ${estimateSummary.percentage.toFixed(1)}% over original estimate`
+        }</div>
         <div class="warning-banner-details">
           Original Estimate: ${estimateSummary.originalEstimate}h •
           Completed: ${estimateSummary.completedWork}h •
           Remaining: ${estimateSummary.remainingWork}h •
-          Total: ${estimateSummary.totalWork}h •
-          Over by: ${estimateSummary.overBy.toFixed(1)}h
+          Total: ${estimateSummary.totalWork}h${estimateSummary.isOver ? ` •
+          Over by: ${estimateSummary.overBy.toFixed(1)}h` : ` •
+          Under by: ${Math.abs(estimateSummary.overBy).toFixed(1)}h`}
         </div>
       </div>
       ` : ''}
@@ -807,6 +861,7 @@ export class WorkItemViewPanel {
           </select>
           <button onclick="changeState()">Update State</button>
           <button class="secondary" onclick="showEstimateDialog()">⏱️ Set Estimate</button>
+          <button class="secondary" onclick="assignToMe()">👤 Assign to Me</button>
           <button class="secondary" onclick="refresh()">Refresh</button>
           <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
           ${isAiProviderAvailable ? `<button class="ai-plan-btn" onclick="generatePlan()" title="Generate implementation plan with AI">🎯 Plan</button>` : ''}
@@ -1000,6 +1055,12 @@ export class WorkItemViewPanel {
             });
             closeEstimateDialog();
           }
+        }
+
+        function assignToMe() {
+          vscode.postMessage({
+            command: 'assignToMe'
+          });
         }
 
         // Allow Enter key to submit estimate
