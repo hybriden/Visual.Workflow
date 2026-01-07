@@ -109,10 +109,13 @@ export class WorkItemViewPanel {
 
   private async changeState(newState: string) {
     try {
-      await this.api.changeWorkItemState(this.workItem.id, newState);
+      const updatedWorkItem = await this.api.changeWorkItemState(this.workItem.id, newState);
+
+      // Update local work item reference
+      this.workItem = updatedWorkItem;
       await this.refresh();
 
-      // Refresh the sprint board
+      // Refresh the sprint board (full refresh will get latest data)
       vscode.commands.executeCommand('azureDevOps.refreshWorkItems');
 
       // Check if we should prompt to update parent

@@ -248,7 +248,14 @@ export function registerCommands(
             cancellable: false
           },
           async () => {
-            await api.changeWorkItemState(selectedItem.workItem.id, newState);
+            const updatedWorkItem = await api.changeWorkItemState(selectedItem.workItem.id, newState);
+
+            // Optimistically update local cache to prevent showing duplicates
+            sprintBoardProvider.updateWorkItemInCache(updatedWorkItem);
+            myWorkItemsProvider.updateWorkItemInCache(updatedWorkItem);
+            if (projectManagerProvider) {
+              projectManagerProvider.updateWorkItemInCache(updatedWorkItem);
+            }
 
             // Refresh views
             await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
@@ -441,7 +448,14 @@ export function registerCommands(
             cancellable: false
           },
           async () => {
-            await api.changeWorkItemState(workItem.id, newState);
+            const updatedWorkItem = await api.changeWorkItemState(workItem.id, newState);
+
+            // Optimistically update local cache to prevent showing duplicates
+            sprintBoardProvider.updateWorkItemInCache(updatedWorkItem);
+            myWorkItemsProvider.updateWorkItemInCache(updatedWorkItem);
+            if (projectManagerProvider) {
+              projectManagerProvider.updateWorkItemInCache(updatedWorkItem);
+            }
 
             // Refresh views
             await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
