@@ -9,6 +9,7 @@ import { EstimateChecker } from '../utils/estimateChecker';
 export class WorkItemTreeItem extends vscode.TreeItem {
   public children: WorkItem[] = [];
   private static currentUser: { uniqueName: string, displayName: string } | null = null;
+  private static instanceCounter: number = 0;
 
   public static setCurrentUser(user: { uniqueName: string, displayName: string } | null) {
     WorkItemTreeItem.currentUser = user;
@@ -17,7 +18,8 @@ export class WorkItemTreeItem extends vscode.TreeItem {
   constructor(
     public readonly workItem: WorkItem,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-    private readonly showParentInDescription: boolean = false
+    private readonly showParentInDescription: boolean = false,
+    private readonly parentContextId?: string
   ) {
     super(workItem.fields['System.Title'], collapsibleState);
 
@@ -26,7 +28,11 @@ export class WorkItemTreeItem extends vscode.TreeItem {
     const id = workItem.fields['System.Id'];
     const parentId = workItem.fields['System.Parent'];
 
-    this.id = id.toString();
+    // Create unique ID by including parent context and instance counter
+    // This ensures each tree item instance has a globally unique ID
+    // Format: "workItemId-instance" or "parentContextId-workItemId-instance"
+    const instanceId = WorkItemTreeItem.instanceCounter++;
+    this.id = parentContextId ? `${parentContextId}-${id}-${instanceId}` : `${id}-${instanceId}`;
     this.tooltip = this.getTooltip();
     this.contextValue = 'workItem';
 
@@ -196,6 +202,24 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Update a work item in the local cache (optimistic update)
+   * This prevents stale data from showing duplicates when state changes
+   */
+  updateWorkItemInCache(updatedWorkItem: WorkItem): void {
+    const id = updatedWorkItem.fields['System.Id'];
+    const index = this.workItems.findIndex(wi => wi.fields['System.Id'] === id);
+
+    if (index !== -1) {
+      // Replace the old work item with the updated one
+      this.workItems[index] = updatedWorkItem;
+      this.workItemMap.set(id, updatedWorkItem);
+
+      // Fire change event to re-render the tree with updated data
+      this._onDidChangeTreeData.fire();
+    }
+  }
+
   async loadWorkItems(): Promise<void> {
     try {
       const sprintItems = await this.api.getSprintWorkItems();
@@ -287,7 +311,8 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
       }
     }
 
-    return [...sprintItems, ...itemsToAdd];
+    // Return combined items - itemMap ensures no duplicates
+    return Array.from(itemMap.values());
   }
 
   /**
@@ -367,10 +392,13 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
         if (parentWorkItem) {
           // Check if parent has children to determine collapsible state
           const parentChildren = this.workItems.filter(wi => wi.fields['System.Parent'] === parentId);
+          // Get grandparent for context
+          const grandparentId = parentWorkItem.fields['System.Parent'];
           return new WorkItemTreeItem(
             parentWorkItem,
             parentChildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-            false
+            false,
+            grandparentId ? grandparentId.toString() : undefined
           );
         }
       }
@@ -426,7 +454,8 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
       return items;
     } else if (element instanceof StateCategoryTreeItem) {
       // Show work items in this category with parent-child hierarchy
-      return this.buildHierarchy(element.workItems);
+      // Use category label as context to ensure unique IDs across categories
+      return this.buildHierarchy(element.workItems, element.label);
     } else if (element instanceof WorkItemTreeItem) {
       // Show children of this work item - find all children from workItems
       const parentId = element.workItem.fields['System.Id'];
@@ -435,10 +464,12 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
       return allChildren.map(child => {
         // Find this child's children
         const grandchildren = this.workItems.filter(wi => wi.fields['System.Parent'] === child.fields['System.Id']);
+        // Use element's ID as parent context to create unique child IDs
         const treeItem = new WorkItemTreeItem(
           child,
           grandchildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-          false
+          false,
+          element.id
         );
         treeItem.children = grandchildren;
         return treeItem;
@@ -448,7 +479,7 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
     return [];
   }
 
-  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
+  private buildHierarchy(workItems: WorkItem[], categoryContext?: string): WorkItemTreeItem[] {
     // Create a map of ALL work items (including those from other states for hierarchy)
     const itemMap = new Map<number, WorkItem>();
 
@@ -513,19 +544,21 @@ export class SprintBoardProvider implements vscode.TreeDataProvider<vscode.TreeI
     console.log(`[Sprint Board] Top-level items: ${topLevelItems.map(w => `#${w.fields['System.Id']} (${w.fields['System.WorkItemType']})`).join(', ')}`);
 
     // Recursively build tree items with full hierarchy
-    const buildTreeItem = (wi: WorkItem): WorkItemTreeItem => {
+    const buildTreeItem = (wi: WorkItem, parentContext?: string): WorkItemTreeItem => {
       const directChildren = childrenByParent.get(wi.fields['System.Id']) || [];
       const treeItem = new WorkItemTreeItem(
         wi,
         directChildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-        !!wi.fields['System.Parent'] && !allRelevantItems.has(wi.fields['System.Parent'])
+        !!wi.fields['System.Parent'] && !allRelevantItems.has(wi.fields['System.Parent']),
+        parentContext
       );
       // Recursively build children with their full hierarchies
       treeItem.children = directChildren;
       return treeItem;
     };
 
-    return topLevelItems.map(buildTreeItem);
+    // Pass category context as the initial parent context for top-level items
+    return topLevelItems.map(wi => buildTreeItem(wi, categoryContext));
   }
 
   private getStateCategory(state: string): string {
@@ -587,6 +620,19 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Update a work item in the local cache (optimistic update)
+   */
+  updateWorkItemInCache(updatedWorkItem: WorkItem): void {
+    const id = updatedWorkItem.fields['System.Id'];
+    const index = this.workItems.findIndex(wi => wi.fields['System.Id'] === id);
+
+    if (index !== -1) {
+      this.workItems[index] = updatedWorkItem;
+      this._onDidChangeTreeData.fire();
+    }
+  }
+
   async loadWorkItems(): Promise<void> {
     try {
       this.workItems = await this.api.getMyWorkItems();
@@ -634,10 +680,12 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
       return allChildren.map(child => {
         // Find this child's children
         const grandchildren = this.workItems.filter(wi => wi.fields['System.Parent'] === child.fields['System.Id']);
+        // Use element's ID as parent context to create unique child IDs
         const treeItem = new WorkItemTreeItem(
           child,
           grandchildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-          false
+          false,
+          element.id
         );
         treeItem.children = grandchildren;
         return treeItem;
@@ -647,7 +695,7 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
     return [];
   }
 
-  private buildHierarchy(workItems: WorkItem[]): WorkItemTreeItem[] {
+  private buildHierarchy(workItems: WorkItem[], categoryContext?: string): WorkItemTreeItem[] {
     // Create a map of ALL work items (including those from other states for hierarchy)
     const itemMap = new Map<number, WorkItem>();
 
@@ -655,6 +703,11 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
     this.workItems.forEach(wi => {
       itemMap.set(wi.fields['System.Id'], wi);
     });
+
+    // Create a map of which state category each work item belongs to
+    // (only needed for SprintBoard which does category-based grouping)
+    const itemStateCategories = new Map<number, string>();
+    // Note: MyWorkItemsProvider doesn't have getStateCategory, that's OK since it doesn't pass categoryContext
 
     // Collect all ancestors of items in this state category
     const allRelevantItems = new Set<number>();
@@ -712,19 +765,21 @@ export class MyWorkItemsProvider implements vscode.TreeDataProvider<WorkItemTree
     console.log(`[Sprint Board] Top-level items: ${topLevelItems.map(w => `#${w.fields['System.Id']} (${w.fields['System.WorkItemType']})`).join(', ')}`);
 
     // Recursively build tree items with full hierarchy
-    const buildTreeItem = (wi: WorkItem): WorkItemTreeItem => {
+    const buildTreeItem = (wi: WorkItem, parentContext?: string): WorkItemTreeItem => {
       const directChildren = childrenByParent.get(wi.fields['System.Id']) || [];
       const treeItem = new WorkItemTreeItem(
         wi,
         directChildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-        !!wi.fields['System.Parent'] && !allRelevantItems.has(wi.fields['System.Parent'])
+        !!wi.fields['System.Parent'] && !allRelevantItems.has(wi.fields['System.Parent']),
+        parentContext
       );
       // Recursively build children with their full hierarchies
       treeItem.children = directChildren;
       return treeItem;
     };
 
-    return topLevelItems.map(buildTreeItem);
+    // Pass category context as the initial parent context for top-level items
+    return topLevelItems.map(wi => buildTreeItem(wi, categoryContext));
   }
 
   private async getCurrentUser(): Promise<{ uniqueName: string, displayName: string } | null> {

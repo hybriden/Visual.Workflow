@@ -390,6 +390,16 @@ None currently. Please report issues on the [GitHub repository](https://github.c
 
 ## Release Notes
 
+### 0.3.5
+
+**Bug Fixes:**
+- **Fixed Duplicate Work Items in Sprint Board**: Resolved issue where work items appeared in multiple state categories simultaneously
+  - Root cause: When a work item's state changed (e.g., Task moved from "In Progress" to "Done"), stale cache data caused it to appear in both categories
+  - Added optimistic cache updates that immediately reflect state changes locally before server refresh
+  - Enhanced buildHierarchy to prevent showing parent items as context when they already appear as top-level items in the same category
+  - Each tree item instance gets a globally unique ID using an instance counter to prevent registration conflicts
+  - Applies to Sprint Board, My Work Items, and Project Manager views
+
 ### 0.3.4
 
 **New Features:**

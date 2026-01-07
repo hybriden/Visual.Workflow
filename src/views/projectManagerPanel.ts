@@ -9,6 +9,7 @@ import { EstimateChecker } from '../utils/estimateChecker';
 export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
   public children: WorkItem[] = [];
   private static currentUser: { uniqueName: string, displayName: string } | null = null;
+  private static instanceCounter: number = 0;
 
   public static setCurrentUser(user: { uniqueName: string, displayName: string } | null) {
     ProjectManagerWorkItemTreeItem.currentUser = user;
@@ -17,7 +18,8 @@ export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
   constructor(
     public readonly workItem: WorkItem,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-    private readonly showParentInDescription: boolean = false
+    private readonly showParentInDescription: boolean = false,
+    private readonly parentContextId?: string
   ) {
     super(workItem.fields['System.Title'], collapsibleState);
 
@@ -26,7 +28,11 @@ export class ProjectManagerWorkItemTreeItem extends vscode.TreeItem {
     const id = workItem.fields['System.Id'];
     const parentId = workItem.fields['System.Parent'];
 
-    this.id = id.toString();
+    // Create unique ID by including parent context and instance counter
+    // This ensures each tree item instance has a globally unique ID
+    // Format: "workItemId-instance" or "parentContextId-workItemId-instance"
+    const instanceId = ProjectManagerWorkItemTreeItem.instanceCounter++;
+    this.id = parentContextId ? `${parentContextId}-${id}-${instanceId}` : `${id}-${instanceId}`;
     this.tooltip = this.getTooltip();
     this.contextValue = 'workItem';
 
@@ -191,6 +197,19 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Update a work item in the local cache (optimistic update)
+   */
+  updateWorkItemInCache(updatedWorkItem: WorkItem): void {
+    const id = updatedWorkItem.fields['System.Id'];
+    const index = this.workItems.findIndex(wi => wi.fields['System.Id'] === id);
+
+    if (index !== -1) {
+      this.workItems[index] = updatedWorkItem;
+      this._onDidChangeTreeData.fire();
+    }
+  }
+
   async loadWorkItems(): Promise<void> {
     try {
       this.workItems = await this.api.getAllProjectWorkItems();
@@ -245,10 +264,12 @@ export class ProjectManagerProvider implements vscode.TreeDataProvider<vscode.Tr
       return allChildren.map(child => {
         // Find this child's children
         const grandchildren = this.workItems.filter(wi => wi.fields['System.Parent'] === child.fields['System.Id']);
+        // Use element's ID as parent context to create unique child IDs
         const treeItem = new ProjectManagerWorkItemTreeItem(
           child,
           grandchildren.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-          false
+          false,
+          element.id
         );
         treeItem.children = grandchildren;
         return treeItem;

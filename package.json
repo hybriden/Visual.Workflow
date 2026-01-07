@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
