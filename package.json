@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -145,6 +145,11 @@
         "command": "azureDevOps.changeProjectManagerGrouping",
         "title": "Azure DevOps: Change Project Manager Grouping",
         "icon": "$(group-by-ref-type)"
+      },
+      {
+        "command": "azureDevOps.logTime",
+        "title": "Log Time",
+        "icon": "$(watch)"
       }
     ],
     "menus": {
@@ -235,6 +240,21 @@
           "command": "azureDevOps.contextAssignChildrenToMe",
           "when": "view == azureDevOpsProjectManager && viewItem == workItem",
           "group": "assign@1"
+        },
+        {
+          "command": "azureDevOps.logTime",
+          "when": "view == azureDevOpsSprintBoard && viewItem == workItem && config.azureDevOps.useTimeLoggingExtension",
+          "group": "time@1"
+        },
+        {
+          "command": "azureDevOps.logTime",
+          "when": "view == azureDevOpsMyWorkItems && viewItem == workItem && config.azureDevOps.useTimeLoggingExtension",
+          "group": "time@1"
+        },
+        {
+          "command": "azureDevOps.logTime",
+          "when": "view == azureDevOpsProjectManager && viewItem == workItem && config.azureDevOps.useTimeLoggingExtension",
+          "group": "time@1"
         }
       ]
     },
@@ -371,6 +391,18 @@
           "enum": ["state", "type", "iteration", "assignedTo", "epic"],
           "default": "state",
           "description": "How to group work items in Project Manager view"
+        },
+        "azureDevOps.useTimeLoggingExtension": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable integration with the Time Logging Extension for Azure DevOps (Premium). When enabled, you can log time directly from VS Code."
+        },
+        "azureDevOps.timeLoggingApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key from Time Log Admin (found in Project Settings > Time Log Admin). Required for Time Logging Extension integration.",
+          "scope": "machine-overridable",
+          "format": "password"
         }
       }
     }

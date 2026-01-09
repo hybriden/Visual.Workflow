@@ -5,6 +5,7 @@ import { AiServiceManager } from '../ai/aiServiceManager';
 import { PlanViewPanel } from './planView';
 import { EstimateChecker } from '../utils/estimateChecker';
 import { shouldPromptParentUpdate, promptAndUpdateParent } from '../utils/parentStatusHelper';
+import { TimeLogApi, TimeLogEntry, TimeType, TimeLogRecord } from '../azureDevOps/timeLogApi';
 
 /**
  * Webview panel for displaying work item details
@@ -19,6 +20,7 @@ export class WorkItemViewPanel {
   private validStates: string[] = [];
   private parentWorkItem: WorkItem | undefined;
   private comments: any[] = [];
+  private timeLogs: TimeLogRecord[] = [];
 
   private constructor(panel: vscode.WebviewPanel, workItem: WorkItem) {
     this._panel = panel;
@@ -70,6 +72,15 @@ export class WorkItemViewPanel {
             break;
           case 'assignToMe':
             await this.assignToMe();
+            break;
+          case 'logTime':
+            await this.logTime();
+            break;
+          case 'deleteTimeLog':
+            await this.deleteTimeLog(message.timeLogId);
+            break;
+          case 'editTimeLog':
+            await this.editTimeLog(message.timeLogId, message.currentMinutes, message.currentComment);
             break;
         }
       },
@@ -420,6 +431,304 @@ export class WorkItemViewPanel {
     }
   }
 
+  private async logTime() {
+    // Reset to ensure we have the latest PAT
+    TimeLogApi.resetInstance();
+    const timeLogApi = TimeLogApi.getInstance();
+    const config = vscode.workspace.getConfiguration('azureDevOps');
+
+    if (!timeLogApi.isEnabled()) {
+      const enable = await vscode.window.showInformationMessage(
+        'Time Logging Extension integration is not enabled. Enable it to log time directly from VS Code.',
+        'Enable',
+        'Cancel'
+      );
+
+      if (enable === 'Enable') {
+        await config.update('useTimeLoggingExtension', true, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage('Time Logging Extension enabled. Try logging time again.');
+      }
+      return;
+    }
+
+    if (!timeLogApi.hasApiKey()) {
+      const openSettings = await vscode.window.showWarningMessage(
+        'Time Logging API Key is not configured. Get the API Key from Project Settings > Time Log Admin in Azure DevOps.',
+        'Open Settings',
+        'Cancel'
+      );
+
+      if (openSettings === 'Open Settings') {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'azureDevOps.timeLoggingApiKey');
+      }
+      return;
+    }
+
+    try {
+      const workItemId = this.workItem.id;
+      const workItemTitle = this.workItem.fields['System.Title'];
+      const projectName = this.workItem.fields['System.TeamProject'];
+
+      // Get current user identity from assigned work items
+      const assignedTo = this.workItem.fields['System.AssignedTo'];
+      if (!assignedTo) {
+        vscode.window.showErrorMessage('Could not determine your user identity. Please ensure you are assigned to this work item.');
+        return;
+      }
+
+      // Get organization ID and project ID automatically
+      const orgId = await this.api.getOrganizationId();
+      const projectGuid = await this.api.getProjectId(projectName);
+
+      // Fetch available time types from the API
+      const timeTypes = await timeLogApi.getTimeTypes(orgId);
+      const timeTypeItems = timeTypes.map(tt => ({
+        label: tt.description,
+        description: tt.id !== tt.description ? tt.id : undefined
+      }));
+
+      // Step 1: Select time type
+      const selectedTimeType = await vscode.window.showQuickPick(timeTypeItems, {
+        placeHolder: `Select time type for #${workItemId} - ${workItemTitle}`
+      });
+
+      if (!selectedTimeType) {
+        return;
+      }
+
+      // Step 2: Enter time in minutes
+      const minutesString = await vscode.window.showInputBox({
+        prompt: `Log time for #${workItemId} - ${workItemTitle}`,
+        placeHolder: 'Enter time in minutes (e.g., 30, 60, 90)',
+        validateInput: (value) => {
+          const num = parseInt(value, 10);
+          if (isNaN(num) || num <= 0) {
+            return 'Please enter a valid positive number of minutes';
+          }
+          return null;
+        }
+      });
+
+      if (!minutesString) {
+        return;
+      }
+
+      const minutes = parseInt(minutesString, 10);
+
+      // Step 3: Check if AI is available for auto-generating comments
+      const isAiAvailable = this.aiManager.isAiEnabled() && await this.aiManager.isCopilotAvailable();
+
+      let timeLogEntries: Array<{ minutes: number; comment: string }> = [];
+
+      if (isAiAvailable) {
+        // Show option to auto-generate or enter manually
+        const commentOption = await vscode.window.showQuickPick([
+          { label: '✨ Auto-generate with AI', description: minutes > 180 ? `Will create up to 3 entries` : 'Generate comment based on task', value: 'auto' },
+          { label: '📝 Enter manually', description: 'Type your own comment', value: 'manual' }
+        ], {
+          placeHolder: 'How would you like to add comments?'
+        });
+
+        if (!commentOption) {
+          return;
+        }
+
+        if (commentOption.value === 'auto') {
+          // Auto-generate comments using AI
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'Generating comments with AI...',
+              cancellable: false
+            },
+            async () => {
+              timeLogEntries = await this.aiManager.generateTimeLogComments(
+                workItemTitle,
+                this.workItem.fields['System.WorkItemType'],
+                selectedTimeType.label,
+                minutes
+              );
+            }
+          );
+        } else {
+          // Manual entry
+          const comment = await vscode.window.showInputBox({
+            prompt: 'Add a comment (optional)',
+            placeHolder: 'What did you work on?'
+          });
+
+          timeLogEntries = [{ minutes, comment: comment || '' }];
+        }
+      } else {
+        // No AI available - manual entry only
+        const comment = await vscode.window.showInputBox({
+          prompt: 'Add a comment (optional)',
+          placeHolder: 'What did you work on?'
+        });
+
+        timeLogEntries = [{ minutes, comment: comment || '' }];
+      }
+
+      if (timeLogEntries.length === 0) {
+        return;
+      }
+
+      // Create the time log entries
+      const today = new Date().toISOString().split('T')[0];
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Logging ${timeLogEntries.length > 1 ? `${timeLogEntries.length} entries` : `${minutes} minutes`} for work item #${workItemId}...`,
+          cancellable: false
+        },
+        async () => {
+          for (const entry of timeLogEntries) {
+            const timeLogEntry: TimeLogEntry = {
+              minutes: entry.minutes,
+              timeTypeDescription: selectedTimeType.label,
+              comment: entry.comment,
+              date: today,
+              workItemId: workItemId,
+              projectId: projectGuid,
+              users: [{
+                userId: assignedTo.id || assignedTo.uniqueName,
+                userName: assignedTo.displayName,
+                userEmail: assignedTo.uniqueName
+              }],
+              userMakingChange: assignedTo.displayName
+            };
+
+            await timeLogApi.createTimeLog(orgId, timeLogEntry);
+          }
+
+          const totalMins = timeLogEntries.reduce((sum, e) => sum + e.minutes, 0);
+          const hours = Math.floor(totalMins / 60);
+          const mins = totalMins % 60;
+          const timeDisplay = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+          if (timeLogEntries.length > 1) {
+            vscode.window.showInformationMessage(
+              `Logged ${timeDisplay} in ${timeLogEntries.length} entries for #${workItemId}`
+            );
+          } else {
+            vscode.window.showInformationMessage(
+              `Logged ${timeDisplay} (${selectedTimeType.label}) for #${workItemId}`
+            );
+          }
+
+          // Refresh the view
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to log time: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async deleteTimeLog(timeLogId: string) {
+    try {
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Deleting time log...',
+          cancellable: false
+        },
+        async () => {
+          TimeLogApi.resetInstance();
+          const timeLogApi = TimeLogApi.getInstance();
+          const orgId = await this.api.getOrganizationId();
+
+          await timeLogApi.deleteTimeLog(orgId, timeLogId);
+
+          vscode.window.showInformationMessage('Time log entry deleted.');
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to delete time log: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async editTimeLog(timeLogId: string, currentMinutes: number, currentComment: string) {
+    try {
+      // Find the time log entry to get all its data
+      const timeLog = this.timeLogs.find(log => log.timeLogId === timeLogId);
+      if (!timeLog) {
+        vscode.window.showErrorMessage('Time log entry not found.');
+        return;
+      }
+
+      TimeLogApi.resetInstance();
+      const timeLogApi = TimeLogApi.getInstance();
+      const orgId = await this.api.getOrganizationId();
+      const projectId = await this.api.getProjectId(this.workItem.fields['System.TeamProject']);
+
+      // Ask for new minutes
+      const minutesString = await vscode.window.showInputBox({
+        prompt: 'Edit time (in minutes)',
+        value: currentMinutes.toString(),
+        validateInput: (value) => {
+          const num = parseInt(value, 10);
+          if (isNaN(num) || num <= 0) {
+            return 'Please enter a valid positive number of minutes';
+          }
+          return null;
+        }
+      });
+
+      if (!minutesString) {
+        return;
+      }
+
+      const minutes = parseInt(minutesString, 10);
+
+      // Ask for new comment
+      const comment = await vscode.window.showInputBox({
+        prompt: 'Edit comment',
+        value: currentComment || ''
+      });
+
+      if (comment === undefined) {
+        return; // User cancelled
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Updating time log...',
+          cancellable: false
+        },
+        async () => {
+          await timeLogApi.updateTimeLog(orgId, timeLogId, {
+            minutes,
+            comment,
+            timeTypeDescription: timeLog.timeTypeDescription,
+            date: timeLog.date,
+            workItemId: this.workItem.id,
+            projectId: projectId,
+            userName: timeLog.userName,
+            userId: timeLog.userId,
+            userEmail: timeLog.userEmail,
+            userMakingChange: timeLog.userName
+          });
+
+          vscode.window.showInformationMessage('Time log entry updated.');
+          await this.refresh();
+        }
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to update time log: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
   private async assignToMe() {
     try {
       await vscode.window.withProgress(
@@ -489,6 +798,22 @@ export class WorkItemViewPanel {
       this.comments = [];
     }
 
+    // Fetch time logs if Time Logging Extension is enabled
+    const timeLogApi = TimeLogApi.getInstance();
+    if (timeLogApi.isEnabled() && timeLogApi.hasApiKey()) {
+      try {
+        const projectName = this.workItem.fields['System.TeamProject'];
+        const orgId = await this.api.getOrganizationId();
+        const projectId = await this.api.getProjectId(projectName);
+        this.timeLogs = await timeLogApi.getTimeLogs(orgId, projectId, this.workItem.id);
+      } catch (error) {
+        console.error('Error fetching time logs:', error);
+        this.timeLogs = [];
+      }
+    } else {
+      this.timeLogs = [];
+    }
+
     this._panel.webview.html = await this._getHtmlForWebview(webview);
   }
 
@@ -520,6 +845,15 @@ export class WorkItemViewPanel {
 
     // Common state transitions
     const stateOptions = this.getStateOptions(state);
+
+    // Time log summary
+    const totalMinutesLogged = this.timeLogs.reduce((sum, log) => sum + log.minutes, 0);
+    const totalHoursLogged = Math.floor(totalMinutesLogged / 60);
+    const totalMinsLogged = totalMinutesLogged % 60;
+    const totalTimeDisplay = totalHoursLogged > 0
+      ? `${totalHoursLogged}h ${totalMinsLogged}m`
+      : `${totalMinsLogged}m`;
+    const timeLogEnabled = TimeLogApi.getInstance().isEnabled() && TimeLogApi.getInstance().hasApiKey();
 
     return `<!DOCTYPE html>
     <html lang="en">
@@ -768,6 +1102,19 @@ export class WorkItemViewPanel {
         .delete-comment-btn:hover {
           background-color: var(--vscode-button-secondaryBackground);
         }
+        .time-log-btn {
+          background-color: transparent;
+          border: 1px solid var(--vscode-button-secondaryBackground);
+          color: var(--vscode-foreground);
+          padding: 2px 6px;
+          cursor: pointer;
+          border-radius: 2px;
+          font-size: 12px;
+          margin: 0;
+        }
+        .time-log-btn:hover {
+          background-color: var(--vscode-button-secondaryBackground);
+        }
         .estimate-dialog {
           display: none;
           position: fixed;
@@ -824,6 +1171,17 @@ export class WorkItemViewPanel {
         </div>
       </div>
 
+      <div class="estimate-overlay" id="deleteOverlay" onclick="closeDeleteDialog()"></div>
+      <div class="estimate-dialog" id="deleteDialog">
+        <h3 style="margin-top: 0;">Delete Time Log Entry</h3>
+        <p style="color: var(--vscode-descriptionForeground); margin: 10px 0;">Are you sure you want to delete this time log entry?</p>
+        <input type="hidden" id="deleteTimeLogId" value="" />
+        <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="secondary" onclick="closeDeleteDialog()">Cancel</button>
+          <button style="background-color: var(--vscode-inputValidation-errorBackground);" onclick="confirmDelete()">Delete</button>
+        </div>
+      </div>
+
       <div class="header">
         <div class="work-item-id">Work Item #${id}</div>
         <h1 class="work-item-title">${title}</h1>
@@ -863,7 +1221,8 @@ export class WorkItemViewPanel {
             ${stateOptions}
           </select>
           <button onclick="changeState()">Update State</button>
-          <button class="secondary" onclick="showEstimateDialog()">⏱️ Set Estimate</button>
+          ${timeLogEnabled ? `<button class="secondary" onclick="logTime()">⏱️ Log Time</button>` : ''}
+          <button class="secondary" onclick="showEstimateDialog()">📊 Set Estimate</button>
           <button class="secondary" onclick="assignToMe()">👤 Assign to Me</button>
           <button class="secondary" onclick="refresh()">Refresh</button>
           <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
@@ -934,6 +1293,8 @@ export class WorkItemViewPanel {
           <div class="field-value">${changedDate}</div>
         </div>
       </div>
+
+      ${timeLogEnabled ? this.renderTimeLogSection(totalMinutesLogged, totalTimeDisplay) : ''}
 
       <div class="section">
         <div class="section-title">Comments${this.comments.length > 0 ? ` (${this.comments.length})` : ''}</div>
@@ -1066,6 +1427,41 @@ export class WorkItemViewPanel {
           });
         }
 
+        function logTime() {
+          vscode.postMessage({ command: 'logTime' });
+        }
+
+        function removeTimeLogEntry(timeLogId, event) {
+          if (event) event.stopPropagation();
+          document.getElementById('deleteTimeLogId').value = timeLogId;
+          document.getElementById('deleteDialog').classList.add('show');
+          document.getElementById('deleteOverlay').classList.add('show');
+        }
+
+        function closeDeleteDialog() {
+          document.getElementById('deleteDialog').classList.remove('show');
+          document.getElementById('deleteOverlay').classList.remove('show');
+          document.getElementById('deleteTimeLogId').value = '';
+        }
+
+        function confirmDelete() {
+          const timeLogId = document.getElementById('deleteTimeLogId').value;
+          if (timeLogId) {
+            vscode.postMessage({ command: 'deleteTimeLog', timeLogId: timeLogId });
+          }
+          closeDeleteDialog();
+        }
+
+        function editTimeLog(timeLogId, currentMinutes, currentComment, event) {
+          if (event) event.stopPropagation();
+          vscode.postMessage({
+            command: 'editTimeLog',
+            timeLogId: timeLogId,
+            currentMinutes: currentMinutes,
+            currentComment: currentComment
+          });
+        }
+
         // Allow Enter key to submit estimate
         document.addEventListener('DOMContentLoaded', function() {
           const estimateInput = document.getElementById('estimateInput');
@@ -1168,5 +1564,55 @@ export class WorkItemViewPanel {
     result = result.replace(/(<br>\s*){3,}/gi, '<br><br>');
 
     return result;
+  }
+
+  private renderTimeLogSection(totalMinutesLogged: number, totalTimeDisplay: string): string {
+    const entriesHtml = this.timeLogs.map(log => {
+      const logHours = Math.floor(log.minutes / 60);
+      const logMins = log.minutes % 60;
+      const logTimeDisplay = logHours > 0 ? `${logHours}h ${logMins}m` : `${logMins}m`;
+      const logDate = new Date(log.date).toLocaleDateString();
+      const userName = log.userName || log.userEmail || 'Unknown';
+      const commentHtml = log.comment ? `<div style="margin-top: 6px; font-size: 13px;">${this.escapeHtml(log.comment)}</div>` : '';
+      const escapedComment = (log.comment || '').replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+      return `
+        <div class="time-log-entry" style="background-color: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600;">${logTimeDisplay}</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="color: var(--vscode-descriptionForeground); font-size: 12px;">${logDate}</span>
+              <button type="button" class="time-log-btn" onclick="editTimeLog('${log.timeLogId}', ${log.minutes}, '${escapedComment}', event); return false;" title="Edit">✏️</button>
+              <button type="button" class="time-log-btn" onclick="removeTimeLogEntry('${log.timeLogId}', event); return false;" title="Delete">🗑️</button>
+            </div>
+          </div>
+          <div style="color: var(--vscode-descriptionForeground); font-size: 12px; margin-top: 4px;">
+            ${this.escapeHtml(userName)} • ${this.escapeHtml(log.timeTypeDescription || 'General')}
+          </div>
+          ${commentHtml}
+        </div>
+      `;
+    }).join('');
+
+    const entriesSection = this.timeLogs.length > 0
+      ? `
+        <details style="margin-top: 10px;">
+          <summary style="cursor: pointer; color: var(--vscode-textLink-foreground); margin-bottom: 10px;">Show time log entries</summary>
+          <div class="time-logs-container" style="margin-top: 10px;">
+            ${entriesHtml}
+          </div>
+        </details>
+      `
+      : '<p style="color: var(--vscode-descriptionForeground); margin-top: 10px;">No time logged yet.</p>';
+
+    return `
+      <div class="section">
+        <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Time Logged${this.timeLogs.length > 0 ? ` (${this.timeLogs.length} entries)` : ''}</span>
+          <span style="font-size: 18px; font-weight: bold; color: var(--vscode-textLink-foreground);">${totalMinutesLogged > 0 ? totalTimeDisplay : '0m'}</span>
+        </div>
+        ${entriesSection}
+      </div>
+    `;
   }
 }
