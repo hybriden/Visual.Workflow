@@ -390,6 +390,18 @@ None currently. Please report issues on the [GitHub repository](https://github.c
 
 ## Release Notes
 
+### 0.3.6
+
+**New Features:**
+- **Time Logging Extension Integration (Premium)**: Log hours directly from VS Code using the [Time Logging Extension for Azure DevOps](https://marketplace.visualstudio.com/items?itemName=TimeLog.time-logging-extension)
+  - Requires Premium version of the Time Logging Extension
+  - Enable via setting: `azureDevOps.useTimeLoggingExtension`
+  - Organization ID and time types are automatically detected
+  - Right-click any work item and select "Log Time"
+  - Or use the "Log Time" button in the work item detail panel
+  - Select time type, enter minutes, and add optional comment
+  - Time entries appear in the "Time Log" tab in Azure DevOps
+
 ### 0.3.5
 
 **Bug Fixes:**

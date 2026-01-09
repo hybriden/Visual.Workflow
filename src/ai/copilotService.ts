@@ -332,6 +332,138 @@ Make the plan actionable and specific. Use markdown formatting.`;
   }
 
   /**
+   * Generate time log comments for a work item
+   * If minutes > 180, generates multiple entries (max 3)
+   */
+  public async generateTimeLogComments(
+    workItemTitle: string,
+    workItemType: string,
+    timeType: string,
+    totalMinutes: number
+  ): Promise<Array<{ minutes: number; comment: string }>> {
+    if (!await this.isCopilotAvailable()) {
+      throw new Error('GitHub Copilot is not available.');
+    }
+
+    if (!await this.ensureCopilotActivated()) {
+      throw new Error('Failed to activate GitHub Copilot extension.');
+    }
+
+    // Determine how many entries to create
+    const numEntries = totalMinutes > 180 ? Math.min(3, Math.ceil(totalMinutes / 60)) : 1;
+
+    let prompt: string;
+
+    if (numEntries === 1) {
+      prompt = `Generate a brief, professional time log comment (1 sentence, max 100 characters) for this work:
+
+Work Item: ${workItemTitle}
+Work Item Type: ${workItemType}
+Time Type: ${timeType}
+Duration: ${totalMinutes} minutes
+
+Write a short comment describing what was done. Be specific and action-oriented. Example: "Implemented user authentication logic" or "Fixed null reference exception in data parser"
+
+Return ONLY the comment text, nothing else.`;
+    } else {
+      // Split the time into multiple entries
+      const minutesPerEntry = Math.floor(totalMinutes / numEntries);
+      const remainder = totalMinutes % numEntries;
+
+      prompt = `A developer worked ${totalMinutes} minutes on this task. Split this into ${numEntries} separate time log entries with different activities.
+
+Work Item: ${workItemTitle}
+Work Item Type: ${workItemType}
+Primary Time Type: ${timeType}
+
+Generate ${numEntries} distinct activities that would be done for this type of work. Each entry should have a brief comment (1 sentence, max 100 characters).
+
+Return as JSON array with this exact format:
+[
+  {"minutes": ${minutesPerEntry + (remainder > 0 ? 1 : 0)}, "comment": "activity description"},
+  {"minutes": ${minutesPerEntry + (remainder > 1 ? 1 : 0)}, "comment": "activity description"}${numEntries === 3 ? `,
+  {"minutes": ${minutesPerEntry}, "comment": "activity description"}` : ''}
+]
+
+Examples of good comments: "Implemented core logic", "Added unit tests", "Code review and refactoring", "Documentation updates"
+
+Return ONLY the JSON array, no explanation.`;
+    }
+
+    try {
+      const models = await vscode.lm.selectChatModels({
+        vendor: 'copilot',
+        family: 'gpt-4o'
+      });
+
+      if (models.length === 0) {
+        throw new Error('No Copilot models available');
+      }
+
+      const model = models[0];
+      const messages = [vscode.LanguageModelChatMessage.User(prompt)];
+      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+
+      let result = '';
+      for await (const chunk of response.text) {
+        result += chunk;
+      }
+
+      result = result.trim();
+
+      // Helper to round to nearest 30 minutes
+      const roundTo30 = (mins: number) => Math.round(mins / 30) * 30;
+
+      if (numEntries === 1) {
+        // Single entry - return the comment directly
+        return [{ minutes: totalMinutes, comment: result.replace(/^["']|["']$/g, '') }];
+      } else {
+        // Multiple entries - parse JSON
+        const jsonMatch = result.match(/\[[\s\S]*\]/);
+        let entries: Array<{ minutes: number; comment: string }> = [];
+
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          entries = parsed.map((e: any) => ({
+            minutes: parseInt(e.minutes, 10) || Math.floor(totalMinutes / numEntries),
+            comment: String(e.comment || 'Development work')
+          }));
+        } else {
+          // Fallback: even split with generic comments
+          const evenSplit = Math.floor(totalMinutes / numEntries);
+          const comments = ['Development work', 'Testing and validation', 'Code review and refinement'];
+          entries = Array.from({ length: numEntries }, (_, i) => ({
+            minutes: evenSplit,
+            comment: comments[i] || 'Development work'
+          }));
+        }
+
+        // Round all entries to nearest 30 minutes
+        let roundedTotal = 0;
+        const rounded = entries.map((e, i) => {
+          const roundedMins = roundTo30(e.minutes);
+          roundedTotal += roundedMins;
+          return { minutes: roundedMins, comment: e.comment };
+        });
+
+        // Adjust last entry to ensure total matches original
+        if (roundedTotal !== totalMinutes && rounded.length > 0) {
+          rounded[rounded.length - 1].minutes += (totalMinutes - roundedTotal);
+        }
+
+        // Ensure no entry is 0 or negative
+        return rounded.map(e => ({
+          minutes: Math.max(30, e.minutes),
+          comment: e.comment
+        }));
+      }
+    } catch (error: any) {
+      console.error('Error generating time log comments:', error);
+      throw new Error(`Failed to generate comments: ${error.message || String(error)}`);
+    }
+  }
+
+  /**
    * Generate suggestions for work item fields using Copilot
    */
   public async generateFieldSuggestions(

@@ -125,4 +125,30 @@ export class AiServiceManager {
       `AI suggestions ${newState ? 'enabled' : 'disabled'}`
     );
   }
+
+  /**
+   * Generate time log comments for a work item
+   * If minutes > 180, generates multiple entries (max 3)
+   */
+  public async generateTimeLogComments(
+    workItemTitle: string,
+    workItemType: string,
+    timeType: string,
+    totalMinutes: number
+  ): Promise<Array<{ minutes: number; comment: string }>> {
+    if (!this.isAiEnabled()) {
+      throw new Error('AI suggestions are disabled. Enable them in settings.');
+    }
+
+    if (!await this.copilotService.isCopilotAvailable()) {
+      throw new Error('GitHub Copilot is not available. Please install and authenticate the GitHub Copilot extension.');
+    }
+
+    return await this.copilotService.generateTimeLogComments(
+      workItemTitle,
+      workItemType,
+      timeType,
+      totalMinutes
+    );
+  }
 }

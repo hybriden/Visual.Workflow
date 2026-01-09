@@ -748,6 +748,87 @@ export class AzureDevOpsApi {
   }
 
   /**
+   * Get project ID (GUID) from project name
+   */
+  public async getProjectId(projectName: string): Promise<string> {
+    try {
+      const url = `${this.getBaseUrl()}/_apis/projects/${encodeURIComponent(projectName)}?api-version=7.0`;
+      const response = await this.axiosInstance.get(url);
+      return response.data.id;
+    } catch (error) {
+      console.error('Error fetching project ID:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get organization ID (GUID) from Azure DevOps
+   * Cached after first successful fetch
+   */
+  private cachedOrganizationId: string | null = null;
+
+  public async getOrganizationId(): Promise<string> {
+    // Return cached value if available
+    if (this.cachedOrganizationId) {
+      return this.cachedOrganizationId;
+    }
+
+    const org = this.auth.getOrganization();
+    const pat = this.auth.getPAT();
+    const authHeader = pat ? `Basic ${Buffer.from(':' + pat).toString('base64')}` : '';
+
+    // Use axios directly without interceptor to avoid showing error messages
+    // when trying multiple fallback methods
+    const silentAxios = axios.create({
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
+    });
+
+    try {
+      // Method 1: Try VSSPS API to get organization info
+      const vsspsUrl = `https://vssps.dev.azure.com/${encodeURIComponent(org || '')}/_apis/organization?api-version=7.0`;
+      const vsspsResponse = await silentAxios.get(vsspsUrl);
+      if (vsspsResponse.data && vsspsResponse.data.id) {
+        this.cachedOrganizationId = vsspsResponse.data.id;
+        return vsspsResponse.data.id;
+      }
+    } catch {
+      // Try next method
+    }
+
+    try {
+      // Method 2: Try accounts API via VSSPS
+      const accountsUrl = `https://app.vssps.visualstudio.com/_apis/accounts?ownerId=${encodeURIComponent(org || '')}&api-version=7.0`;
+      const accountsResponse = await silentAxios.get(accountsUrl);
+      if (accountsResponse.data && accountsResponse.data.value && accountsResponse.data.value.length > 0) {
+        const accountId = accountsResponse.data.value[0].accountId;
+        this.cachedOrganizationId = accountId;
+        return accountId;
+      }
+    } catch {
+      // Try next method
+    }
+
+    try {
+      // Method 3: Get from project collections
+      const collectionsUrl = `${this.getBaseUrl()}/_apis/projectCollections?api-version=7.0`;
+      const collectionsResponse = await silentAxios.get(collectionsUrl);
+      if (collectionsResponse.data.value && collectionsResponse.data.value.length > 0) {
+        const collectionId = collectionsResponse.data.value[0].id;
+        this.cachedOrganizationId = collectionId;
+        return collectionId;
+      }
+    } catch {
+      // Try next method
+    }
+
+    throw new Error('Could not determine organization ID. Please check your Azure DevOps connection.');
+  }
+
+  /**
    * Get work item URL for browser
    */
   public getWorkItemUrl(id: number): string {
