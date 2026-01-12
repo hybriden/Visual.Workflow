@@ -522,4 +522,132 @@ Format your response as JSON with keys: description, acceptanceCriteria (array),
       throw new Error(`Failed to generate suggestions: ${error.message || String(error)}`);
     }
   }
+
+  /**
+   * Generate AI review for a pull request
+   */
+  public async generatePullRequestReview(
+    prTitle: string,
+    prDescription: string,
+    sourceBranch: string,
+    targetBranch: string,
+    changedFiles: Array<{ path: string; changeType: string }>,
+    fileContents: Array<{ path: string; content: string }>
+  ): Promise<{ summary: string; suggestions: string[]; codeSmells: Array<{ severity: 'warning' | 'error' | 'info'; message: string; file?: string }> }> {
+    if (!await this.isCopilotAvailable()) {
+      throw new Error('GitHub Copilot is not available.');
+    }
+
+    if (!await this.ensureCopilotActivated()) {
+      throw new Error('Failed to activate GitHub Copilot extension.');
+    }
+
+    // Build file changes summary
+    const filesSummary = changedFiles.map(f => `- ${f.path} (${f.changeType})`).join('\n');
+
+    // Build code diff snippets (limit to avoid token limits)
+    const codeSnippets = fileContents
+      .slice(0, 5) // Limit to 5 files
+      .map(f => {
+        const truncatedContent = f.content.length > 2500
+          ? f.content.substring(0, 2500) + '\n... (truncated)'
+          : f.content;
+        return `### ${f.path}\n\`\`\`diff\n${truncatedContent}\n\`\`\``;
+      })
+      .join('\n\n');
+
+    const prompt = `You are a senior software engineer conducting a thorough code review. Analyze this pull request and provide:
+
+1. **Summary**: A concise summary of what this PR does (2-3 sentences)
+2. **Suggestions**: List specific suggestions, potential issues, or improvements (3-7 items)
+3. **Code Smells**: Identify any code smells or anti-patterns with severity levels
+
+## Pull Request Details
+- **Title**: ${prTitle}
+- **Description**: ${prDescription || 'No description provided'}
+- **Branch**: ${sourceBranch} → ${targetBranch}
+
+## Files Changed (${changedFiles.length} files)
+${filesSummary}
+
+## Code Diffs (showing what changed)
+${codeSnippets || 'No diff content available'}
+
+---
+
+Provide your review in the following JSON format:
+{
+  "summary": "Brief summary of the PR changes and purpose",
+  "suggestions": [
+    "Suggestion 1: specific feedback or issue",
+    "Suggestion 2: specific feedback or issue"
+  ],
+  "codeSmells": [
+    { "severity": "warning", "message": "Description of the code smell", "file": "path/to/file.ts" },
+    { "severity": "error", "message": "Critical issue found", "file": "path/to/file.ts" }
+  ]
+}
+
+## Code Smell Categories to Check:
+- **error** (critical): Security vulnerabilities, potential runtime errors, data loss risks, SQL injection, XSS
+- **warning** (important): Long functions (>50 lines), deeply nested code (>3 levels), magic numbers, code duplication, missing error handling, hardcoded credentials/URLs
+- **info** (minor): Missing documentation, inconsistent naming, unused variables, TODO comments, complex conditionals
+
+Focus on:
+- Code quality and best practices
+- Potential bugs or edge cases
+- Security concerns (CRITICAL)
+- Performance implications
+- Anti-patterns and code smells
+- Missing tests or documentation`;
+
+    try {
+      const models = await vscode.lm.selectChatModels({
+        vendor: 'copilot',
+        family: 'gpt-4o'
+      });
+
+      if (models.length === 0) {
+        throw new Error('No Copilot models available');
+      }
+
+      const model = models[0];
+      const messages = [vscode.LanguageModelChatMessage.User(prompt)];
+      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+
+      let result = '';
+      for await (const chunk of response.text) {
+        result += chunk;
+      }
+
+      // Try to parse JSON response
+      try {
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            summary: parsed.summary || 'No summary generated',
+            suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+            codeSmells: Array.isArray(parsed.codeSmells) ? parsed.codeSmells.map((smell: any) => ({
+              severity: ['error', 'warning', 'info'].includes(smell.severity) ? smell.severity : 'warning',
+              message: smell.message || 'Unknown issue',
+              file: smell.file
+            })) : []
+          };
+        }
+      } catch (parseError) {
+        console.error('Failed to parse PR review as JSON:', parseError);
+      }
+
+      // Fallback: return raw response as summary
+      return {
+        summary: result.trim(),
+        suggestions: [],
+        codeSmells: []
+      };
+    } catch (error: any) {
+      console.error('Error generating PR review:', error);
+      throw new Error(`Failed to generate PR review: ${error.message || String(error)}`);
+    }
+  }
 }

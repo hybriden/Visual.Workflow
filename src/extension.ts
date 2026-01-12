@@ -3,13 +3,16 @@ import { AzureDevOpsAuth } from './azureDevOps/auth';
 import { AzureDevOpsApi } from './azureDevOps/api';
 import { SprintBoardProvider, MyWorkItemsProvider } from './views/sprintPanel';
 import { ProjectManagerProvider } from './views/projectManagerPanel';
+import { PullRequestsProvider } from './views/pullRequestsPanel';
 import { ProjectPicker } from './azureDevOps/projectPicker';
 import { registerCommands } from './commands';
 import { trackRecentProject } from './commands/projectSwitcher';
+import { PullRequest } from './models/pullRequest';
 
 let statusBarItem: vscode.StatusBarItem;
 let refreshTimer: NodeJS.Timeout | undefined;
 let projectManagerProvider: ProjectManagerProvider | undefined;
+let pullRequestsProvider: PullRequestsProvider | undefined;
 
 /**
  * Helper function to recursively expand all tree items
@@ -77,6 +80,18 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(projectManagerView);
   }
 
+  // Conditionally create Pull Requests provider if enabled
+  const enablePullRequests = config.get<boolean>('enablePullRequests', false);
+
+  if (enablePullRequests) {
+    pullRequestsProvider = new PullRequestsProvider();
+    const pullRequestsView = vscode.window.createTreeView('azureDevOpsPullRequests', {
+      treeDataProvider: pullRequestsProvider,
+      showCollapseAll: true
+    });
+    context.subscriptions.push(pullRequestsView);
+  }
+
   // Register expand all command for Sprint Board
   context.subscriptions.push(
     vscode.commands.registerCommand('azureDevOps.expandAllSprintBoard', async () => {
@@ -133,10 +148,10 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage('Connected to Azure DevOps!');
 
           // Load initial data
-          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
 
           // Setup auto-refresh
-          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
         } else {
           vscode.window.showWarningMessage(
             'Could not connect to Azure DevOps. Please check your configuration.'
@@ -153,8 +168,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (configured) {
       // Reload after configuration
-      await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
-      setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+      await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
+      setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
       statusBarItem.show();
     }
   }
@@ -165,14 +180,22 @@ export async function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration('azureDevOps')) {
         console.log('Azure DevOps configuration changed');
 
+        // Clear caches when critical configuration changes
+        if (e.affectsConfiguration('azureDevOps.organization') ||
+            e.affectsConfiguration('azureDevOps.pat') ||
+            e.affectsConfiguration('azureDevOps.project')) {
+          console.log('Clearing API caches due to configuration change');
+          api.clearCache();
+        }
+
         if (auth.isConfigured()) {
           statusBarItem.show();
 
           // Reload data
-          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+          await loadInitialData(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
 
           // Restart auto-refresh
-          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
+          setupAutoRefresh(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider, pullRequestsProvider);
         } else {
           statusBarItem.hide();
           if (refreshTimer) {
@@ -231,6 +254,23 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // Pull Requests commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.refreshPullRequests', async () => {
+      if (pullRequestsProvider) {
+        await pullRequestsProvider.loadPullRequests();
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('azureDevOps.openPullRequest', async (pr: PullRequest) => {
+      if (pullRequestsProvider) {
+        pullRequestsProvider.openPullRequest(pr);
+      }
+    })
+  );
 }
 
 /**
@@ -239,17 +279,18 @@ export async function activate(context: vscode.ExtensionContext) {
 async function loadInitialData(
   sprintBoardProvider: SprintBoardProvider,
   myWorkItemsProvider: MyWorkItemsProvider,
-  projectManagerProvider?: ProjectManagerProvider
+  projectManagerProvider?: ProjectManagerProvider,
+  pullRequestsProvider?: PullRequestsProvider
 ): Promise<void> {
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: 'Loading Azure DevOps work items...',
+      title: 'Loading Azure DevOps data...',
       cancellable: false
     },
     async () => {
       try {
-        const promises = [
+        const promises: Promise<void>[] = [
           sprintBoardProvider.loadWorkItems(),
           myWorkItemsProvider.loadWorkItems()
         ];
@@ -258,10 +299,14 @@ async function loadInitialData(
           promises.push(projectManagerProvider.loadWorkItems());
         }
 
+        if (pullRequestsProvider) {
+          promises.push(pullRequestsProvider.loadPullRequests());
+        }
+
         await Promise.all(promises);
       } catch (error) {
         vscode.window.showErrorMessage(
-          `Failed to load work items: ${error instanceof Error ? error.message : 'Unknown error'}`
+          `Failed to load data: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     }
@@ -274,7 +319,8 @@ async function loadInitialData(
 function setupAutoRefresh(
   sprintBoardProvider: SprintBoardProvider,
   myWorkItemsProvider: MyWorkItemsProvider,
-  projectManagerProvider?: ProjectManagerProvider
+  projectManagerProvider?: ProjectManagerProvider,
+  pullRequestsProvider?: PullRequestsProvider
 ): void {
   // Clear existing timer
   if (refreshTimer) {
@@ -287,16 +333,20 @@ function setupAutoRefresh(
 
   if (autoRefresh && refreshInterval > 0) {
     refreshTimer = setInterval(async () => {
-      console.log('Auto-refreshing Azure DevOps work items...');
+      console.log('Auto-refreshing Azure DevOps data...');
 
       try {
-        const promises = [
+        const promises: Promise<void>[] = [
           sprintBoardProvider.loadWorkItems(),
           myWorkItemsProvider.loadWorkItems()
         ];
 
         if (projectManagerProvider) {
           promises.push(projectManagerProvider.loadWorkItems());
+        }
+
+        if (pullRequestsProvider) {
+          promises.push(pullRequestsProvider.loadPullRequests());
         }
 
         await Promise.all(promises);
