@@ -35,10 +35,19 @@ Manage your Azure DevOps work items, sprint boards, and task status directly fro
 - **Project Manager**: Right-click to change status, create child tasks, or assign all children
 - **Quick Actions**: All common operations accessible via right-click
 
+### Pull Requests View
+- **View Your PRs**: See all pull requests you created or are assigned to review
+- **AI-Powered Code Review**: Get AI analysis of PR changes including summary, key changes, and potential issues
+- **PR Details Panel**: View full PR details with files changed, reviewers, and vote status
+- **Quick Navigation**: Open PRs directly in Azure DevOps from VS Code
+- **Review Status**: See who has approved, rejected, or is waiting on your PRs
+
 ### AI-Powered Features
 - **Generate Descriptions**: AI-powered generation using GitHub Copilot
 - **Implementation Plans**: Get detailed implementation plans with technical guidance
 - **Smart Context Awareness**: AI uses work item metadata for relevant suggestions
+- **AI Time Log Comments**: Generate contextual comments for time entries based on work item details
+- **AI PR Code Review**: Analyze pull request changes with AI-powered insights
 - **GitHub Copilot Agent Integration**: Create GitHub issues from implementation plans and automatically assign GitHub Copilot coding agent to work on them
   - Automatic GitHub authentication (no token setup needed)
   - Select organization and repository from dropdowns
@@ -366,6 +375,10 @@ This extension contributes the following settings:
 - `azureDevOps.showOverEstimateAlerts`: Show visual alerts for work items that exceed their original estimates (default: `true`)
 - `azureDevOps.overEstimateThreshold`: Percentage threshold for over-estimate alerts (default: `0` - any over-estimate)
 
+### Pull Requests Settings
+
+- `azureDevOps.enablePullRequests`: Enable Pull Requests view showing PRs you're assigned to review or have created (default: `false`)
+
 **Note**:
 - Project and team settings are managed via the Setup Wizard and Quick Switch commands, not manually in settings.
 - GitHub authentication for Copilot agent is automatic via VS Code - no manual token setup required.
@@ -389,6 +402,32 @@ This extension contributes the following settings:
 None currently. Please report issues on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
 
 ## Release Notes
+
+### 0.3.7
+
+**New Features:**
+- **Pull Requests View**: New view showing all PRs you created or are assigned to review
+  - Enable via setting: `azureDevOps.enablePullRequests`
+  - Shows PR title, status, reviewers, and vote status
+  - Click to open detailed PR panel with full description and file changes
+  - Open PRs directly in Azure DevOps browser
+- **AI-Powered PR Code Review**: Click "Analyze with AI" in PR details to get:
+  - Summary of changes
+  - Key modifications highlighted
+  - Potential issues and concerns
+  - Suggestions for review focus areas
+- **AI Time Log Comments**: When logging time, optionally generate contextual comments based on work item details
+  - Click "Generate with AI" when adding a time log comment
+  - AI analyzes work item title, type, state, and description
+  - Creates professional, relevant comments automatically
+
+**Technical Improvements:**
+- **Enhanced Security**: New whitelist-based HTML sanitization prevents XSS attacks
+- **Code Architecture**: Refactored views to use template builder pattern for maintainability
+- **Unit Tests**: Added comprehensive test suite with 99+ tests covering utilities and models
+- **Integration Tests**: Added VS Code extension integration test infrastructure
+- **Cache Management**: Improved cache invalidation when switching organizations or projects
+- **Architecture Documentation**: Added ARCHITECTURE.md describing codebase structure and patterns
 
 ### 0.3.6
 
@@ -569,6 +608,8 @@ None currently. Please report issues on the [GitHub repository](https://github.c
 ## Feedback & Contributing
 
 Found a bug or have a feature request? Please open an issue on the [GitHub repository](https://github.com/hybriden/Visual.Workflow/issues).
+
+For developers interested in contributing, see [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure and patterns. Run `npm test` to execute the unit test suite.
 
 ## License
 

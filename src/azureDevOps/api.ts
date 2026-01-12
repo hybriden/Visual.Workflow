@@ -2,6 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import * as vscode from 'vscode';
 import { AzureDevOpsAuth } from './auth';
 import { WorkItem, WorkItemQueryResult, Iteration } from '../models/workItem';
+import { PullRequest } from '../models/pullRequest';
 
 /**
  * Azure DevOps API Client
@@ -54,6 +55,36 @@ export class AzureDevOpsApi {
     }
     return AzureDevOpsApi.instance;
   }
+
+  /**
+   * Reset the singleton instance.
+   * Use this when configuration changes require a fresh API client.
+   */
+  public static resetInstance(): void {
+    if (AzureDevOpsApi.instance) {
+      AzureDevOpsApi.instance.clearCache();
+    }
+    AzureDevOpsApi.instance = undefined as any;
+  }
+
+  /**
+   * Clear all cached data.
+   * Call this when organization or authentication changes.
+   */
+  public clearCache(): void {
+    this.cachedOrganizationId = null;
+    this.cachedProjectIds.clear();
+  }
+
+  /**
+   * Cached organization ID
+   */
+  private cachedOrganizationId: string | null = null;
+
+  /**
+   * Cached project IDs by project name
+   */
+  private cachedProjectIds: Map<string, string> = new Map();
 
   /**
    * Get base URL for Azure DevOps API
@@ -751,10 +782,21 @@ export class AzureDevOpsApi {
    * Get project ID (GUID) from project name
    */
   public async getProjectId(projectName: string): Promise<string> {
+    // Return cached value if available
+    const cached = this.cachedProjectIds.get(projectName);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const url = `${this.getBaseUrl()}/_apis/projects/${encodeURIComponent(projectName)}?api-version=7.0`;
       const response = await this.axiosInstance.get(url);
-      return response.data.id;
+      const projectId = response.data.id;
+
+      // Cache the result
+      this.cachedProjectIds.set(projectName, projectId);
+
+      return projectId;
     } catch (error) {
       console.error('Error fetching project ID:', error);
       throw error;
@@ -763,10 +805,8 @@ export class AzureDevOpsApi {
 
   /**
    * Get organization ID (GUID) from Azure DevOps
-   * Cached after first successful fetch
+   * Result is cached until clearCache() is called.
    */
-  private cachedOrganizationId: string | null = null;
-
   public async getOrganizationId(): Promise<string> {
     // Return cached value if available
     if (this.cachedOrganizationId) {
@@ -833,5 +873,300 @@ export class AzureDevOpsApi {
    */
   public getWorkItemUrl(id: number): string {
     return `${this.getProjectUrl()}/_workitems/edit/${id}`;
+  }
+
+  // ==================== Pull Request Methods ====================
+
+  /**
+   * Get pull requests assigned to the current user as a reviewer
+   */
+  public async getMyPullRequests(status: 'active' | 'completed' | 'abandoned' | 'all' = 'all'): Promise<PullRequest[]> {
+    try {
+      const currentUser = await this.getCurrentUser();
+      if (!currentUser || !currentUser.id) {
+        throw new Error('Could not determine current user');
+      }
+
+      const allPRs: PullRequest[] = [];
+
+      // Fetch PRs where current user is a reviewer
+      const reviewerPRs = await this.getPullRequestsByReviewer(currentUser.id, status);
+      allPRs.push(...reviewerPRs);
+
+      // Also fetch PRs created by current user
+      const createdPRs = await this.getPullRequestsByCreator(currentUser.id, status);
+
+      // Merge and deduplicate
+      for (const pr of createdPRs) {
+        if (!allPRs.some(existing => existing.pullRequestId === pr.pullRequestId)) {
+          allPRs.push(pr);
+        }
+      }
+
+      // Sort by creation date (newest first)
+      allPRs.sort((a, b) => new Date(b.creationDate).getTime() - new Date(a.creationDate).getTime());
+
+      return allPRs;
+    } catch (error) {
+      console.error('Error fetching pull requests:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pull requests by reviewer ID
+   */
+  private async getPullRequestsByReviewer(reviewerId: string, status: string): Promise<PullRequest[]> {
+    try {
+      let url = `${this.getProjectUrl()}/_apis/git/pullrequests?searchCriteria.reviewerId=${encodeURIComponent(reviewerId)}&api-version=7.0`;
+
+      if (status !== 'all') {
+        url += `&searchCriteria.status=${status}`;
+      }
+
+      const response = await this.axiosInstance.get(url);
+      return response.data.value || [];
+    } catch (error) {
+      console.error('Error fetching PRs by reviewer:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get pull requests by creator ID
+   */
+  private async getPullRequestsByCreator(creatorId: string, status: string): Promise<PullRequest[]> {
+    try {
+      let url = `${this.getProjectUrl()}/_apis/git/pullrequests?searchCriteria.creatorId=${encodeURIComponent(creatorId)}&api-version=7.0`;
+
+      if (status !== 'all') {
+        url += `&searchCriteria.status=${status}`;
+      }
+
+      const response = await this.axiosInstance.get(url);
+      return response.data.value || [];
+    } catch (error) {
+      console.error('Error fetching PRs by creator:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a single pull request by ID
+   */
+  public async getPullRequest(repositoryId: string, pullRequestId: number): Promise<PullRequest> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${pullRequestId}?api-version=7.0`;
+      const response = await this.axiosInstance.get(url);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching pull request:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pull request URL for browser
+   */
+  public getPullRequestUrl(repositoryName: string, pullRequestId: number): string {
+    return `${this.getProjectUrl()}/_git/${encodeURIComponent(repositoryName)}/pullrequest/${pullRequestId}`;
+  }
+
+  /**
+   * Vote on a pull request
+   * @param vote: 10 = Approved, 5 = Approved with suggestions, 0 = No vote, -5 = Waiting for author, -10 = Rejected
+   */
+  public async votePullRequest(repositoryId: string, pullRequestId: number, vote: number): Promise<void> {
+    try {
+      const currentUser = await this.getCurrentUserConnection();
+      const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${pullRequestId}/reviewers/${encodeURIComponent(currentUser.id)}?api-version=7.0`;
+
+      await this.axiosInstance.put(url, { vote });
+    } catch (error) {
+      console.error('Error voting on PR:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get file content at a specific commit/branch for diff viewing
+   */
+  public async getFileAtVersion(repositoryId: string, filePath: string, version: string, versionType: 'branch' | 'commit' = 'branch'): Promise<string> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/items?path=${encodeURIComponent(filePath)}&versionDescriptor.version=${encodeURIComponent(version)}&versionDescriptor.versionType=${versionType}&api-version=7.0`;
+      const response = await this.axiosInstance.get(url, {
+        responseType: 'text',
+        suppressErrors: true
+      } as any);
+      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    } catch (error) {
+      return ''; // File might not exist in this version
+    }
+  }
+
+  /**
+   * Get pull request changes (files changed)
+   */
+  public async getPullRequestChanges(repositoryId: string, pullRequestId: number): Promise<any[]> {
+    try {
+      // Get the iterations first to find the latest
+      const iterationsUrl = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${pullRequestId}/iterations?api-version=7.0`;
+      const iterationsResponse = await this.axiosInstance.get(iterationsUrl);
+      const iterations = iterationsResponse.data.value || [];
+
+      if (iterations.length === 0) {
+        return [];
+      }
+
+      // Get changes from the latest iteration
+      const latestIteration = iterations[iterations.length - 1];
+      const changesUrl = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${pullRequestId}/iterations/${latestIteration.id}/changes?api-version=7.0`;
+      const changesResponse = await this.axiosInstance.get(changesUrl);
+
+      return changesResponse.data.changeEntries || [];
+    } catch (error) {
+      console.error('Error fetching PR changes:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get file diff from a pull request (for AI review)
+   * Returns the actual diff showing what changed, not the full file
+   */
+  public async getPullRequestFileDiff(repositoryId: string, pullRequestId: number, filePath: string): Promise<string> {
+    try {
+      // Get the PR to find source and target branches
+      const pr = await this.getPullRequest(repositoryId, pullRequestId);
+      const sourceRef = pr.sourceRefName.replace('refs/heads/', '');
+      const targetRef = pr.targetRefName.replace('refs/heads/', '');
+
+      // Fetch both versions of the file
+      const getFileContent = async (version: string): Promise<string | null> => {
+        try {
+          const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/items?path=${encodeURIComponent(filePath)}&versionDescriptor.version=${encodeURIComponent(version)}&versionDescriptor.versionType=branch&api-version=7.0`;
+          const response = await this.axiosInstance.get(url, {
+            responseType: 'text',
+            suppressErrors: true
+          } as any);
+          return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+        } catch {
+          return null; // File might not exist in this version
+        }
+      };
+
+      const [sourceContent, targetContent] = await Promise.all([
+        getFileContent(sourceRef),
+        getFileContent(targetRef)
+      ]);
+
+      // Generate a simple diff representation
+      if (sourceContent === null && targetContent === null) {
+        return '';
+      }
+
+      if (targetContent === null) {
+        // New file
+        return `[NEW FILE]\n${sourceContent}`;
+      }
+
+      if (sourceContent === null) {
+        // Deleted file
+        return `[DELETED FILE]\n${targetContent}`;
+      }
+
+      // For modified files, create a unified diff-like output
+      const sourceLines = sourceContent.split('\n');
+      const targetLines = targetContent.split('\n');
+
+      // Simple diff: show what's different
+      const diff: string[] = [];
+      diff.push(`--- ${filePath} (${targetRef})`);
+      diff.push(`+++ ${filePath} (${sourceRef})`);
+      diff.push('');
+
+      // Find changed lines (simple approach - show additions and deletions)
+      const targetSet = new Set(targetLines);
+      const sourceSet = new Set(sourceLines);
+
+      const removed = targetLines.filter(line => !sourceSet.has(line));
+      const added = sourceLines.filter(line => !targetSet.has(line));
+
+      if (removed.length > 0) {
+        diff.push('Removed lines:');
+        removed.slice(0, 50).forEach(line => diff.push(`- ${line}`));
+        if (removed.length > 50) diff.push(`... and ${removed.length - 50} more removed lines`);
+      }
+
+      if (added.length > 0) {
+        diff.push('');
+        diff.push('Added lines:');
+        added.slice(0, 50).forEach(line => diff.push(`+ ${line}`));
+        if (added.length > 50) diff.push(`... and ${added.length - 50} more added lines`);
+      }
+
+      if (removed.length === 0 && added.length === 0) {
+        // Content might have changed in ways our simple diff doesn't catch
+        // Fall back to showing the new content
+        return `[MODIFIED - showing new content]\n${sourceContent?.substring(0, 3000)}`;
+      }
+
+      return diff.join('\n');
+    } catch (error) {
+      console.error(`Error fetching file diff for ${filePath}:`, error);
+      return '';
+    }
+  }
+
+  /**
+   * Get file content from a pull request (for AI review)
+   * @deprecated Use getPullRequestFileDiff for better AI review
+   */
+  public async getPullRequestFileContent(repositoryId: string, pullRequestId: number, filePath: string): Promise<string> {
+    try {
+      // Get the PR to find the source branch
+      const pr = await this.getPullRequest(repositoryId, pullRequestId);
+      const sourceRef = pr.sourceRefName.replace('refs/heads/', '');
+
+      // Get file content from the source branch
+      const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/items?path=${encodeURIComponent(filePath)}&versionDescriptor.version=${encodeURIComponent(sourceRef)}&versionDescriptor.versionType=branch&api-version=7.0`;
+      const response = await this.axiosInstance.get(url, { responseType: 'text' });
+
+      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    } catch (error) {
+      console.error(`Error fetching file content for ${filePath}:`, error);
+      return '';
+    }
+  }
+
+  /**
+   * Get linked work items for a pull request
+   */
+  public async getPullRequestWorkItems(repositoryId: string, pullRequestId: number): Promise<WorkItem[]> {
+    try {
+      const url = `${this.getProjectUrl()}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${pullRequestId}/workitems?api-version=7.0`;
+      const response = await this.axiosInstance.get(url);
+
+      const workItemRefs = response.data.value || [];
+      if (workItemRefs.length === 0) {
+        return [];
+      }
+
+      // Extract work item IDs and fetch full details
+      const ids = workItemRefs.map((ref: any) => {
+        // URL format: https://dev.azure.com/{org}/{project}/_apis/wit/workItems/{id}
+        const match = ref.url.match(/workItems\/(\d+)/);
+        return match ? parseInt(match[1], 10) : null;
+      }).filter((id: number | null) => id !== null);
+
+      if (ids.length === 0) {
+        return [];
+      }
+
+      return await this.getWorkItems(ids);
+    } catch (error) {
+      console.error('Error fetching PR work items:', error);
+      return [];
+    }
   }
 }

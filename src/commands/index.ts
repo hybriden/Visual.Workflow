@@ -9,7 +9,7 @@ import { registerFilterCommands } from './filterCommands';
 import { registerProjectSwitcher } from './projectSwitcher';
 import { registerAiCommands } from './aiCommands';
 import { shouldPromptParentUpdate, promptAndUpdateParent } from '../utils/parentStatusHelper';
-import { TimeLogApi, TimeLogEntry, TimeType } from '../azureDevOps/timeLogApi';
+import { logTimeForWorkItem, extractUserIdentityFromWorkItem } from '../utils/timeLogHelper';
 
 /**
  * Register all extension commands
@@ -752,151 +752,29 @@ export function registerCommands(
         return;
       }
 
-      // Reset to ensure we have the latest PAT
-      TimeLogApi.resetInstance();
-      const timeLogApi = TimeLogApi.getInstance();
-      const config = vscode.workspace.getConfiguration('azureDevOps');
+      const workItem = treeItem.workItem;
 
-      if (!timeLogApi.isEnabled()) {
-        const enable = await vscode.window.showInformationMessage(
-          'Time Logging Extension integration is not enabled. Enable it to log time directly from VS Code.',
-          'Enable',
-          'Cancel'
-        );
-
-        if (enable === 'Enable') {
-          await config.update('useTimeLoggingExtension', true, vscode.ConfigurationTarget.Global);
-          vscode.window.showInformationMessage('Time Logging Extension enabled. Try logging time again.');
-        }
+      // Get current user identity
+      const currentUserIdentity = await getCurrentUserIdentity();
+      if (!currentUserIdentity) {
+        vscode.window.showErrorMessage('Could not determine your user identity. Please ensure you have work items assigned to you.');
         return;
       }
 
-      if (!timeLogApi.hasApiKey()) {
-        const openSettings = await vscode.window.showWarningMessage(
-          'Time Logging API Key is not configured. Get the API Key from Project Settings > Time Log Admin in Azure DevOps.',
-          'Open Settings',
-          'Cancel'
-        );
-
-        if (openSettings === 'Open Settings') {
-          vscode.commands.executeCommand('workbench.action.openSettings', 'azureDevOps.timeLoggingApiKey');
+      // Use shared time logging helper
+      await logTimeForWorkItem(
+        {
+          id: workItem.id,
+          title: workItem.fields['System.Title'],
+          workItemType: workItem.fields['System.WorkItemType'],
+          projectName: workItem.fields['System.TeamProject']
+        },
+        extractUserIdentityFromWorkItem(currentUserIdentity)!,
+        async () => {
+          // Refresh views after successful time logging
+          await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
         }
-        return;
-      }
-
-      try {
-        const workItem = treeItem.workItem;
-        const workItemId = workItem.id;
-        const workItemTitle = workItem.fields['System.Title'];
-        const projectName = workItem.fields['System.TeamProject'];
-
-        // Get current user identity
-        const currentUserIdentity = await getCurrentUserIdentity();
-        if (!currentUserIdentity) {
-          vscode.window.showErrorMessage('Could not determine your user identity. Please ensure you have work items assigned to you.');
-          return;
-        }
-
-        // Get organization ID and project ID automatically
-        const orgId = await api.getOrganizationId();
-        const projectGuid = await api.getProjectId(projectName);
-
-        // Fetch available time types from the API
-        const timeTypes = await timeLogApi.getTimeTypes(orgId);
-        const timeTypeItems = timeTypes.map(tt => ({
-          label: tt.description
-        }));
-
-        // Step 1: Select time type
-        const selectedTimeType = await vscode.window.showQuickPick(timeTypeItems, {
-          placeHolder: `Select time type for #${workItemId} - ${workItemTitle}`
-        });
-
-        if (!selectedTimeType) {
-          return;
-        }
-
-        // Step 2: Enter time in minutes
-        const minutesString = await vscode.window.showInputBox({
-          prompt: `Log time for #${workItemId} - ${workItemTitle}`,
-          placeHolder: 'Enter time in minutes (e.g., 30, 60, 90)',
-          validateInput: (value) => {
-            const num = parseInt(value, 10);
-            if (isNaN(num) || num <= 0) {
-              return 'Please enter a valid positive number of minutes';
-            }
-            return null;
-          }
-        });
-
-        if (!minutesString) {
-          return;
-        }
-
-        const minutes = parseInt(minutesString, 10);
-
-        // Step 3: Optional comment
-        const comment = await vscode.window.showInputBox({
-          prompt: 'Add a comment (optional)',
-          placeHolder: 'What did you work on?'
-        });
-
-        // Create the time log entry
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-
-        const timeLogEntry: TimeLogEntry = {
-          minutes: minutes,
-          timeTypeDescription: selectedTimeType.label,
-          comment: comment || '',
-          date: today,
-          workItemId: workItemId,
-          projectId: projectGuid,
-          users: [{
-            userId: currentUserIdentity.id || currentUserIdentity.uniqueName,
-            userName: currentUserIdentity.displayName,
-            userEmail: currentUserIdentity.uniqueName
-          }],
-          userMakingChange: currentUserIdentity.displayName
-        };
-
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Logging ${minutes} minutes for work item #${workItemId}...`,
-            cancellable: false
-          },
-          async () => {
-            await timeLogApi.createTimeLog(orgId, timeLogEntry);
-
-            const hours = Math.floor(minutes / 60);
-            const mins = minutes % 60;
-            const timeDisplay = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-
-            vscode.window.showInformationMessage(
-              `Logged ${timeDisplay} (${selectedTimeType.label}) for #${workItemId}`
-            );
-
-            // Refresh views to update any time displays
-            await refreshAllViews(sprintBoardProvider, myWorkItemsProvider, projectManagerProvider);
-          }
-        );
-      } catch (error: any) {
-        // Check if it's a 401 authentication error
-        if (error.message?.includes('401')) {
-          const action = await vscode.window.showErrorMessage(
-            'Time Logging Extension requires authentication from Azure DevOps. Open work item in browser to log time there.',
-            'Open in Browser'
-          );
-          if (action === 'Open in Browser') {
-            const url = api.getWorkItemUrl(treeItem.workItem.id);
-            vscode.env.openExternal(vscode.Uri.parse(url));
-          }
-        } else {
-          vscode.window.showErrorMessage(
-            `Failed to log time: ${error instanceof Error ? error.message : 'Unknown error'}`
-          );
-        }
-      }
+      );
     })
   );
 

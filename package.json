@@ -2,7 +2,7 @@
   "name": "azure-devops-workflow",
   "displayName": "Azure DevOps Workflow",
   "description": "Manage Azure DevOps work items, sprint boards, and task status directly from VS Code",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "publisher": "hans-christian-thjomoe",
   "author": {
     "name": "Hans Christian Thjømøe",
@@ -150,6 +150,16 @@
         "command": "azureDevOps.logTime",
         "title": "Log Time",
         "icon": "$(watch)"
+      },
+      {
+        "command": "azureDevOps.refreshPullRequests",
+        "title": "Azure DevOps: Refresh Pull Requests",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.openPullRequest",
+        "title": "Azure DevOps: Open Pull Request",
+        "icon": "$(git-pull-request)"
       }
     ],
     "menus": {
@@ -183,6 +193,11 @@
           "command": "azureDevOps.refreshProjectManager",
           "when": "view == azureDevOpsProjectManager",
           "group": "navigation@2"
+        },
+        {
+          "command": "azureDevOps.refreshPullRequests",
+          "when": "view == azureDevOpsPullRequests",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -303,6 +318,11 @@
           "id": "azureDevOpsProjectManager",
           "name": "Project Manager",
           "when": "config.azureDevOps.enableProjectManager"
+        },
+        {
+          "id": "azureDevOpsPullRequests",
+          "name": "Pull Requests",
+          "when": "config.azureDevOps.enablePullRequests"
         }
       ]
     },
@@ -376,6 +396,11 @@
           "default": false,
           "description": "Enable Project Manager view showing all work items in the project"
         },
+        "azureDevOps.enablePullRequests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Pull Requests view showing PRs you're assigned to review or have created"
+        },
         "azureDevOps.showOverEstimateAlerts": {
           "type": "boolean",
           "default": true,
@@ -388,7 +413,13 @@
         },
         "azureDevOps.projectManagerGroupBy": {
           "type": "string",
-          "enum": ["state", "type", "iteration", "assignedTo", "epic"],
+          "enum": [
+            "state",
+            "type",
+            "iteration",
+            "assignedTo",
+            "epic"
+          ],
           "default": "state",
           "description": "How to group work items in Project Manager view"
         },
@@ -417,16 +448,28 @@
     "check-types": "tsc --noEmit",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "npm run test:unit",
+    "test:unit": "mocha",
+    "test:unit:watch": "mocha --watch",
+    "test:integration": "npm run compile && node ./out/test/runTest.js",
+    "test:all": "npm run test:unit && npm run test:integration"
   },
   "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.5.2",
+    "chai": "^6.2.2",
     "esbuild": "^0.27.0",
     "eslint": "^8.56.0",
+    "glob": "^13.0.0",
+    "mocha": "^11.7.5",
     "npm-run-all": "^4.1.5",
+    "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   },
   "dependencies": {
